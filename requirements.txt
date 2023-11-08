@@ -1,5 +1,5 @@
 # nio-bot[cli,e2ee]>=1.1.0b1.post1
-git+https://github.com/nexy7574/niobot.git
+nio-bot[cli,e2ee] @ git+https://github.com/nexy7574/niobot.git
 websockets>=12.0
 pydantic>=2.4.2
 toml>=0.10.2
