@@ -1,12 +1,15 @@
+import asyncio
 import io
 import json
 import logging
 import tempfile
 import time
 import typing
+import re
 from pathlib import Path
 
 import PIL.Image
+import PIL.ImageDraw
 import nio
 import pydantic
 import niobot
@@ -34,12 +37,14 @@ class MessagePayload(pydantic.BaseModel):
         proxy_url: str
         filename: str
         size: int
-        width: int
-        height: int
+        width: Optional[int] = None
+        height: Optional[int] = None
         content_type: str
 
+    event_type: Optional[str] = "create"
     message_id: int
     author: str
+    is_automated: bool = False
     avatar: str
     content: str
     clean_content: str
@@ -86,6 +91,21 @@ class DiscordBridge(niobot.Module):
                 MessagePayload | nio.RoomMessage | nio.RoomSendResponse
             ]
         ] = []
+        self.bot.add_event_callback(
+            self.on_message,
+            (nio.RoomMessageText, nio.RoomMessageMedia)
+        )
+        self.task: Optional[asyncio.Task] = None
+
+    @niobot.event("ready")
+    async def on_ready(self, _):
+        if self.task is None or self.task.done():
+            self.task = asyncio.create_task(self.poll_loop_wrapper())
+
+    def __teardown__(self):
+        if self.task:
+            self.task.cancel()
+        super().__teardown__()
 
     async def _init_db(self):
         if self._db_ready:
@@ -93,10 +113,20 @@ class DiscordBridge(niobot.Module):
         async with aiosqlite.connect(self.avatar_cache_path) as db:
             await db.execute(
                 """
-                CREATE TABLE IF NOT EXISTS avatars (
-                    user_id TEXT PRIMARY KEY,
-                    mxc TEXT,
-                    expires INTEGER
+                CREATE TABLE IF NOT EXISTS image_cache (
+                    http_url TEXT PRIMARY KEY,
+                    mxc_url TEXT,
+                    etag TEXT DEFAULT NULL,
+                    last_modified TEXT DEFAULT NULL
+                )
+                """
+            )
+            await db.execute(
+                """
+                CREATE TABLE IF NOT EXISTS bridge_messages (
+                    matrix_id TEXT PRIMARY KEY,
+                    discord_id INTEGER,
+                    message_type TEXT
                 )
                 """
             )
@@ -117,52 +147,52 @@ class DiscordBridge(niobot.Module):
         img.save(path)
         return path
 
-    async def get_avatar_from_cache(self, user_id: str) -> Optional[str]:
+    async def get_image_from_cache(self, http: str, *, round: bool = False, encrypted: bool = False) -> Optional[str]:
+        """
+        Fetches an image from the cache, or if not found, uploads it and returns the mxc.
+
+        :param http: The HTTP URL to fetch
+        :param round: Whether to circle the image
+        :param encrypted: Whether the image is encrypted
+        :return: The resolved MXC URL
+        """
         await self._init_db()
         async with aiosqlite.connect(self.avatar_cache_path) as db:
+            self.log.debug("Fetching cached image for %s", http)
             async with db.execute(
-                    "SELECT (mxc, expires) FROM avatars WHERE user_id = ?",
-                    (user_id,)
+                """
+                SELECT mxc_url FROM image_cache WHERE http_url = ?
+                """,
+                (http,)
             ) as cursor:
                 row = await cursor.fetchone()
+                self.log.debug("Row: %r", row)
                 if row:
-                    url, expires = row
-                    if expires > time.time():
-                        return url
-                    else:
-                        self.log.debug("Avatar for %s expired.", user_id)
-                else:
-                    self.log.debug("No avatar for %s found.", user_id)
+                    return row[0]
 
-    async def download_avatar(self, user_id: str, url: str) -> Optional[str]:
-        await self._init_db()
-        async with aiosqlite.connect(self.avatar_cache_path) as db:
-            async with httpx.AsyncClient(headers={"User-Agent": niobot.__user_agent__}) as client:
-                response = await client.get(url)
-                if response.status_code != 200:
-                    self.log.warning("Failed to download avatar for %s: %s", user_id, response.status_code)
-                    return ""
-                filename = response.request.url.path.split("/")[-1]
-                with tempfile.NamedTemporaryFile(suffix=filename, mode="wb") as f:
-                    f.write(response.content)
-                    f.flush()
-                    self.make_image_round(Path(f.name))
-                    attachment = await niobot.ImageAttachment.from_file(
-                        io.BytesIO(response.content),
-                        filename,
-                        generate_blurhash=False
-                    )
-                    await attachment.upload(self.bot, False)
-                await db.execute(
-                    """
-                    INSERT INTO avatars
-                    VALUES (?, ?, ?)
-                    """
-                    ,
-                    (user_id, attachment.url, round(time.time() + 806400))
-                )
-                await db.commit()
-        return attachment.url
+                async with httpx.AsyncClient() as client:
+                    response = await client.get(http)
+                    if response.status_code != 200:
+                        self.log.warning("Failed to fetch avatar: %s", response.status_code)
+                        return None
+                    file_name = response.request.url.path.split("/")[-1]
+                    with tempfile.NamedTemporaryFile(suffix=file_name) as fd:
+                        fd.write(response.content)
+                        fd.flush()
+                        fd.seek(0)
+                        fd_path = Path(fd.name)
+                        if round:
+                            fd_path = self.make_image_round(fd_path)
+                        attachment = await niobot.which(fd_path).from_file(fd_path)
+                        await attachment.upload(self.bot, encrypted=encrypted)
+                        await db.execute(
+                            """
+                            INSERT INTO image_cache (http_url, mxc_url) VALUES (?, ?)
+                            """,
+                            (http, attachment.url)
+                        )
+                        await db.commit()
+                        return attachment.url
 
     def should_prepend_username(self, payload: MessagePayload) -> bool:
         if self.last_message:
@@ -172,129 +202,231 @@ class DiscordBridge(niobot.Module):
                         return False
         return True
 
-    async def poll_loop(self):
+    async def poll_loop_wrapper(self):
+        async with httpx.AsyncClient() as client:
+            while True:
+                try:
+                    await self.poll_loop(client)
+                except asyncio.CancelledError:
+                    raise
+                except websockets.exceptions.ConnectionClosedError:
+                    self.log.warning("Connection to jimmy bridge closed. Retrying in 5 seconds.")
+                    await asyncio.sleep(5)
+                except Exception as e:
+                    self.log.error("Error in poll loop: %s", e, exc_info=True)
+                    await asyncio.sleep(5)
+
+    async def add_message_to_db(self, matrix_id: str, discord_id: int, message_type: str = "content"):
+        """
+        Adds a message to the database.
+
+        :param matrix_id: The Matrix event ID
+        :param discord_id: The discord message ID
+        :param message_type: The message type (content or attachment)
+        :return:
+        """
+        await self._init_db()
+        async with aiosqlite.connect(self.avatar_cache_path) as db:
+            await db.execute(
+                """
+                INSERT INTO bridge_messages (matrix_id, discord_id, message_type) VALUES (?, ?, ?)
+                """,
+                (matrix_id, discord_id, message_type)
+            )
+            await db.commit()
+
+    async def get_message_from_db(
+            self,
+            matrix_id: str = None,
+            discord_id: int = None,
+    ) -> Optional[dict]:
+        if not any((matrix_id, discord_id)):
+            raise ValueError("Must specify either matrix_id or discord_id")
+        await self._init_db()
+        async with aiosqlite.connect(self.avatar_cache_path) as db:
+            if matrix_id:
+                query = "SELECT matrix_id, discord_id, message_type FROM bridge_messages WHERE matrix_id = ?"
+                args = (matrix_id,)
+            else:
+                query = "SELECT matrix_id, discord_id, message_type FROM bridge_messages WHERE discord_id = ?"
+                args = (discord_id,)
+            async with db.execute(query, args) as cursor:
+                row = await cursor.fetchone()
+                if row:
+                    return {
+                        "matrix_id": row[0],
+                        "discord_id": row[1],
+                        "message_type": row[2]
+                    }
+                else:
+                    return None
+
+    async def delete_message_from_db(
+            self,
+            matrix_id: str = None,
+            discord_id: int = None,
+    ):
+        if not matrix_id and not discord_id:
+            raise ValueError("Must specify either matrix_id or discord_id")
+        await self._init_db()
+        async with aiosqlite.connect(self.avatar_cache_path) as db:
+            if matrix_id:
+                query = "DELETE FROM bridge_messages WHERE matrix_id = ?"
+                args = (matrix_id,)
+            else:
+                query = "DELETE FROM bridge_messages WHERE discord_id = ?"
+                args = (discord_id,)
+            await db.execute(query, args)
+            await db.commit()
+
+    async def poll_loop(self, client: httpx.AsyncClient):
         if not self.bot.is_ready.is_set():
             await self.bot.is_ready.wait()
         room = self.bot.rooms[self.channel_id]
 
         while True:
-            async with httpx.AsyncClient() as client:
-                async for ws in websockets.client.connect(
-                    self.websocket_endpoint,
-                    logger=self.log,
-                    extra_headers={
-                        "secret": self.token,
-                    },
-                    user_agent_header="%s Philip" % niobot.__user_agent__,
-                ):
-                    self.log.info("Connected to jimmy bridge.")
-                    async for payload in ws:
-                        self.log.debug("Received message from bridge: %s", payload)
-                        try:
-                            payload_json = json.loads(payload)
-                            payload = MessagePayload(**payload_json)
-                        except json.JSONDecodeError as e:
-                            self.log.error("Invalid JSON payload: %s", e, exc_info=True)
+            async for ws in websockets.client.connect(
+                self.websocket_endpoint,
+                logger=self.log,
+                extra_headers={
+                    "secret": self.token,
+                },
+                user_agent_header="%s Philip" % niobot.__user_agent__,
+            ):
+                self.log.info("Connected to jimmy bridge.")
+                async for payload in ws:
+                    self.log.debug("Received message from bridge: %s", payload)
+                    try:
+                        payload_json = json.loads(payload)
+                        if payload_json.get("status") == "ping":
+                            self.log.debug("Got PING from bridge, ignoring.")
                             continue
-                        except pydantic.ValidationError as e:
-                            self.log.error("Invalid message payload: %s", e, exc_info=True)
-                            continue
+                        payload = MessagePayload(**payload_json)
+                    except json.JSONDecodeError as e:
+                        self.log.error("Invalid JSON payload: %s", e, exc_info=True)
+                        continue
+                    except pydantic.ValidationError as e:
+                        self.log.error("Invalid message payload: %s", e, exc_info=True)
+                        continue
 
-                        if payload.author == "Jimmy Savile#3762":
-                            self.log.debug("Ignoring discord message from myself.")
-                            continue
+                    if payload.author == "Jimmy Savile#3762":
+                        self.log.debug("Ignoring discord message from myself.")
+                        continue
+                    elif payload.is_automated:
+                        self.log.debug("Ignoring discord message from webhook.")
+                        continue
 
-                        reply_to = None
-                        if payload.reply_to:
-                            for cached_message in self.message_cache:
-                                if cached_message["discord"].message_id == payload.reply_to.message_id:
-                                    reply_to = cached_message["matrix"]
-                                    break
-
-                        if payload.content:
-                            new_content = ""
-                            if self.should_prepend_username(payload):
-                                new_content += f"**@{payload.author}:**\n"
-
-                            pre_rendered = await self.bot._markdown_to_html(payload.clean_content)
-                            new_content += "<blockquote>%s</blockquote>" % pre_rendered
-                        elif payload.attachments:
-                            new_content = "@%s sent %d attachments." % (payload.author, len(payload.attachments))
+                    reply_to = None
+                    if payload.reply_to:
+                        for cached_message in self.message_cache:
+                            if cached_message["discord"].message_id == payload.reply_to.message_id:
+                                reply_to = cached_message["matrix"].event_id
+                                break
                         else:
-                            new_content = "@%s sent no content." % payload.author
+                            self.log.debug("Could not find message reply.")
+                    else:
+                        self.log.debug("Message had no reply.")
 
+                    if payload.content:
+                        new_content = ""
+                        if self.should_prepend_username(payload):
+                            avatar = await self.get_image_from_cache(payload.avatar, round=True)
+                            if avatar:
+                                avatar = '<img src="%s" width="16px" height="16px"> ' % avatar
+                            else:
+                                avatar = ""
+                            new_content += f"**{avatar}{payload.author}:**\n"
+
+                        body = f"**{payload.author}:**\n{payload.content}"
+                        pre_rendered = await self.bot._markdown_to_html(payload.clean_content)
+                        new_content += "<blockquote>%s</blockquote>" % pre_rendered
+                    elif payload.attachments:
+                        new_content = body = "@%s sent %d attachments." % (payload.author, len(payload.attachments))
+                    else:
+                        new_content = body = "@%s sent no content." % payload.author
+
+                    self.log.info("Rendered content for matrix: %r", new_content)
+
+                    self.log.debug("Sending message to %r", room)
+                    try:
                         root = await self.bot.send_message(
                             room,
                             new_content,
                             reply_to=reply_to,
                             message_type="m.text",
-                            clean_mentions=False
+                            clean_mentions=False,
                         )
-                        self.message_cache.append(
-                            {
-                                "discord": payload,
-                                "matrix": self.bot.get_cached_message(root.event_id) or root
-                            }
+                        cache = await self.get_message_from_db(discord_id=payload.message_id)
+                        if cache:
+                            await self.delete_message_from_db(discord_id=payload.message_id)
+                        await self.add_message_to_db(
+                            root.event_id,
+                            payload.message_id,
                         )
-                        for attachment in payload.attachments:
-                            with tempfile.NamedTemporaryFile(
-                                "wb",
-                                suffix=attachment.filename,
-                            ) as temp_file_fd:
-                                temp_file = Path(temp_file_fd.name)
-                                response = await client.get(attachment.url)
-                                if response.status_code == 404:
-                                    response = await client.get(attachment.proxy_url)
+                    except niobot.MessageException as e:
+                        self.log.error("Failed to send bridge message to matrix: %r", e, exc_info=True)
+                        continue
 
-                                if response.status_code != 200:
-                                    self.log.warning("Failed to download attachment: %s", response.status_code)
-                                    continue
-                                temp_file_fd.write(response.content)
-                                temp_file_fd.flush()
-                                temp_file_fd.seek(0)
+                    for attachment in payload.attachments:
+                        self.log.info("Processing attachment %s", attachment)
+                        with tempfile.NamedTemporaryFile(
+                            "wb",
+                            suffix=attachment.filename,
+                        ) as temp_file_fd:
+                            temp_file = Path(temp_file_fd.name)
+                            response = await client.get(attachment.url)
+                            if response.status_code == 404:
+                                response = await client.get(attachment.proxy_url)
 
-                                discovered = niobot.which(temp_file)
-                                match discovered:
-                                    case niobot.VideoAttachment:
-                                        # Do some additional processing.
-                                        first_frame_bytes = await niobot.run_blocking(
-                                            niobot.first_frame,
-                                            temp_file,
-                                            "webp"
-                                        )
-                                        first_frame_bio = io.BytesIO(first_frame_bytes)
-                                        thumbnail_attachment = await niobot.ImageAttachment.from_file(
-                                            first_frame_bio,
-                                            attachment.filename + "-thumbnail.webp",
-                                            height=attachment.height,
-                                            width=attachment.width
-                                        )
-                                        file_attachment = await discovered.from_file(
-                                            temp_file,
-                                            height=attachment.height,
-                                            width=attachment.width,
-                                            thumbnail=thumbnail_attachment
-                                        )
-                                    case niobot.ImageAttachment:
-                                        file_attachment = await discovered.from_file(
-                                            temp_file,
-                                            height=attachment.height,
-                                            width=attachment.width
-                                        )
-                                    case niobot.AudioAttachment:
-                                        file_attachment = await discovered.from_file(
-                                            temp_file
-                                        )
-                                    case niobot.FileAttachment:
-                                        file_attachment = await discovered.from_file(
-                                            temp_file
-                                        )
-                                await self.bot.send_message(
-                                    room,
-                                    file=file_attachment,
-                                    reply_to=root.event_id,
-                                    message_type=file_attachment.type.value
-                                )
+                            if response.status_code != 200:
+                                self.log.warning("Failed to download attachment: %s", response.status_code)
+                                continue
+                            temp_file_fd.write(response.content)
+                            temp_file_fd.flush()
+                            temp_file_fd.seek(0)
+
+                            discovered = niobot.which(temp_file)
+                            match discovered:
+                                case niobot.VideoAttachment:
+                                    # Do some additional processing.
+                                    first_frame_bytes = await niobot.run_blocking(
+                                        niobot.first_frame,
+                                        temp_file,
+                                        "webp"
+                                    )
+                                    first_frame_bio = io.BytesIO(first_frame_bytes)
+                                    thumbnail_attachment = await niobot.ImageAttachment.from_file(
+                                        first_frame_bio,
+                                        attachment.filename + "-thumbnail.webp",
+                                        height=attachment.height,
+                                        width=attachment.width
+                                    )
+                                    file_attachment = await discovered.from_file(
+                                        temp_file,
+                                        height=attachment.height,
+                                        width=attachment.width,
+                                        thumbnail=thumbnail_attachment
+                                    )
+                                case niobot.ImageAttachment:
+                                    file_attachment = await discovered.from_file(
+                                        temp_file,
+                                        height=attachment.height,
+                                        width=attachment.width
+                                    )
+                                case niobot.AudioAttachment:
+                                    file_attachment = await discovered.from_file(
+                                        temp_file
+                                    )
+                                case niobot.FileAttachment:
+                                    file_attachment = await discovered.from_file(
+                                        temp_file
+                                    )
+                            await self.bot.send_message(
+                                room,
+                                file=file_attachment,
+                                reply_to=root.event_id,
+                                message_type=file_attachment.type.value
+                            )
 
     async def on_message(self, room: nio.MatrixRoom, message: nio.RoomMessageText | nio.RoomMessageMedia):
         if self.bot.is_old(message):
@@ -309,17 +441,53 @@ class DiscordBridge(niobot.Module):
         if message.sender == self.bot.user_id:
             return
 
+        self.log.debug("Got matrix message: %r in room %r", message, room)
+
         payload = BridgePayload(
             secret=self.token,
             message=message.body,
             sender=message.sender
         )
         if isinstance(message, nio.RoomMessageMedia):
-            payload.message = await self.bot.mxc_to_http(message.url)
+            filename = message.body
+            file_url = await self.bot.mxc_to_http(message.url)
+            payload.message = "[{}]({})".format(filename, file_url)
 
         async with httpx.AsyncClient() as client:
+            if self.webhook_url:
+                avatar = None
+                profile = await self.bot.get_profile(message.sender)
+                if isinstance(profile, nio.ProfileGetResponse):
+                    if profile.avatar_url:
+                        avatar = await self.bot.mxc_to_http(profile.avatar_url)
+                body = {
+                    "content": payload.message,
+                    "username": payload.sender[:32],
+                    "allowed_mentions": {
+                        "parse": [
+                            "users"
+                        ],
+                        "replied_user": True
+                    }
+                }
+                if avatar:
+                    body["avatar_url"] = avatar
+                response = await client.post(
+                    self.webhook_url,
+                    params={"wait": self.config.get("webhook_wait", False)},
+                    json=body
+                )
+                if response.status_code in range(200, 300):
+                    self.log.info("Message %s sent to discord bridge via webhook", message.event_id)
+                    return
+                else:
+                    self.log.warning(
+                        "Failed to bridge message %s using webhook (%d). will fall back to websocket.",
+                        message.event_id,
+                        response.status_code
+                    )
             response = await client.post(
-                self.websocket_endpoint,
+                "https://droplet.nexy7574.co.uk/jimmy/bridge",
                 json=payload.model_dump()
             )
             if response.status_code == 400:
