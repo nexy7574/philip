@@ -57,6 +57,7 @@ except AssertionError as e:
     log.warning("Failed to load discord bridge: %s", e, exc_info=True)
 bot.mount_module("modules.fun")
 bot.mount_module("modules.user_eval")
+bot.mount_module("modules.pypi_releases")
 
 
 @bot.on_event("ready")
