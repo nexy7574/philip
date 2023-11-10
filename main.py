@@ -58,6 +58,7 @@ except AssertionError as e:
 bot.mount_module("modules.fun")
 bot.mount_module("modules.user_eval")
 bot.mount_module("modules.pypi_releases")
+bot.mount_module("modules.ytdl")
 
 
 @bot.on_event("ready")
