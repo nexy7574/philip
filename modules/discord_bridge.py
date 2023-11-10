@@ -18,7 +18,6 @@ import httpx
 import aiosqlite
 from util import config
 from typing import Optional
-# from bs4 import BeautifulSoup
 
 
 class BridgeResponse(pydantic.BaseModel):
