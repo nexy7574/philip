@@ -18,6 +18,7 @@ import httpx
 import aiosqlite
 from util import config
 from typing import Optional
+# from bs4 import BeautifulSoup
 
 
 class BridgeResponse(pydantic.BaseModel):
@@ -337,7 +338,7 @@ class DiscordBridge(niobot.Module):
                                 avatar = ""
                             new_content += f"**{avatar}{payload.author}:**\n"
 
-                        body = f"**{payload.author}:**\n{payload.content}"
+                        body = f"**{payload.author}:**\n{payload.clean_content}"
                         pre_rendered = await self.bot._markdown_to_html(payload.clean_content)
                         new_content += "<blockquote>%s</blockquote>" % pre_rendered
                     elif payload.attachments:
@@ -355,6 +356,9 @@ class DiscordBridge(niobot.Module):
                             reply_to=reply_to,
                             message_type="m.text",
                             clean_mentions=False,
+                            override={
+                                "body": body
+                            }
                         )
                         cache = await self.get_message_from_db(discord_id=payload.message_id)
                         if cache:
