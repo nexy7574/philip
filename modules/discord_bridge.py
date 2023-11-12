@@ -403,7 +403,8 @@ class DiscordBridge(niobot.Module):
                                     size=gif_attachment.size,
                                     width=gif_attachment.info['w'],
                                     height=gif_attachment.info['h'],
-                                    content_type=gif_attachment.mime_type
+                                    content_type=gif_attachment.mime_type,
+                                    ATTACHMENT=gif_attachment
                                 )
                             )
 
