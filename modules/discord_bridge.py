@@ -2,6 +2,7 @@ import asyncio
 import io
 import json
 import logging
+import subprocess
 import tempfile
 import time
 import typing
@@ -16,6 +17,8 @@ import niobot
 import websockets.client
 import httpx
 import aiosqlite
+from bs4 import BeautifulSoup
+
 from util import config
 from typing import Optional
 
@@ -40,6 +43,7 @@ class MessagePayload(pydantic.BaseModel):
         width: Optional[int] = None
         height: Optional[int] = None
         content_type: str
+        ATTACHMENT: Optional[typing.Any] = None
 
     event_type: Optional[str] = "create"
     message_id: int
@@ -279,6 +283,54 @@ class DiscordBridge(niobot.Module):
             await db.execute(query, args)
             await db.commit()
 
+    async def download_gif(self, url: str) -> Path:
+        async with httpx.AsyncClient(
+                follow_redirects=True,
+                headers={
+                    # Mask as twitterbot
+                    "User-Agent": "Twitterbot/1.0",
+                    "Finagle-Ctx-Com.twitter.finagle.retries": "0"
+                }
+        ) as client:
+            response = await client.get(url)
+            if response.status_code == 200:
+                soup = BeautifulSoup(response.text, "html.parser")
+                for meta in soup.find_all("meta"):
+                    if meta.get("property") == "twitter:image":
+                        image_url = meta.get("content")
+                        break
+
+                if image_url:
+                    self.log.debug("Found GIF URL: %s", image_url)
+                    response = await client.get(image_url)
+                    if response.status_code == 200:
+                        with tempfile.NamedTemporaryFile(
+                                "wb",
+                                suffix=".gif"
+                        ) as temp_file_fd:
+                            temp_file = Path(temp_file_fd.name)
+                            temp_file_fd.write(response.content)
+                            temp_file_fd.flush()
+                            temp_file_fd.seek(0)
+                            with tempfile.NamedTemporaryFile(
+                                "wb",
+                                suffix=".webp"
+                            ) as webp_temp_file_fd:
+                                webp_temp_file = Path(webp_temp_file_fd.name)
+                                await niobot.run_blocking(
+                                    subprocess.run,
+                                    (
+                                        "convert",
+                                        str(temp_file.absolute()),
+                                        str(webp_temp_file.absolute())
+                                    ),
+                                    capture_output=True,
+                                    check=True
+                                )
+                                webp_temp_file_fd.flush()
+                                webp_temp_file_fd.seek(0)
+                                return webp_temp_file
+
     async def poll_loop(self, client: httpx.AsyncClient):
         if not self.bot.is_ready.is_set():
             await self.bot.is_ready.wait()
@@ -325,6 +377,36 @@ class DiscordBridge(niobot.Module):
                     else:
                         self.log.debug("Message had no reply.")
 
+                    if gif_match := re.match(
+                        r"https://tenor\.com/view/([0-9A-Za-z_-])+-(?P<id>\d+)",
+                        payload.content or ''
+                    ):
+                        self.log.debug("Found tenor GIF: %s", gif_match)
+                        # noinspection PyBroadException
+                        try:
+                            gif = await self.download_gif(payload.content)
+                        except Exception:
+                            self.log.error("Failed to download gif.", exc_info=True)
+                            gif = None
+                        if gif:
+                            self.log.debug("Uploading GIF to matrix.")
+                            gif_attachment = await niobot.ImageAttachment.from_file(
+                                gif,
+                            )
+                            await gif_attachment.upload(self.bot)
+                            payload.content = None
+                            payload.attachments.append(
+                                MessagePayload.MessageAttachmentPayload(
+                                    url=gif_attachment.url,
+                                    proxy_url=gif_attachment.url,
+                                    filename=gif_attachment.file_name,
+                                    size=gif_attachment.size,
+                                    width=gif_attachment.info['w'],
+                                    height=gif_attachment.info['h'],
+                                    content_type=gif_attachment.mime_type
+                                )
+                            )
+
                     if payload.content:
                         new_content = ""
                         if self.should_prepend_username(payload):
@@ -370,6 +452,15 @@ class DiscordBridge(niobot.Module):
 
                     for attachment in payload.attachments:
                         self.log.info("Processing attachment %s", attachment)
+                        if attachment.url.startswith("mxc://"):
+                            # Already uploaded. All we need to do is send it.
+                            await self.bot.send_message(
+                                room,
+                                file=attachment.ATTACHMENT,
+                                reply_to=root.event_id,
+                            )
+                            continue
+
                         with tempfile.NamedTemporaryFile(
                             "wb",
                             suffix=attachment.filename,
