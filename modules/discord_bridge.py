@@ -378,7 +378,7 @@ class DiscordBridge(niobot.Module):
                         self.log.debug("Message had no reply.")
 
                     if gif_match := re.match(
-                        r"https://tenor\.com/view/([0-9A-Za-z_-])+-(?P<id>\d+)",
+                        r"https://tenor\.com/.+",
                         payload.content or ''
                     ):
                         self.log.debug("Found tenor GIF: %s", gif_match)
