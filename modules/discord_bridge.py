@@ -297,7 +297,7 @@ class DiscordBridge(niobot.Module):
                 soup = BeautifulSoup(response.text, "html.parser")
                 for meta in soup.find_all("meta"):
                     self.log.debug(meta)
-                    if meta.get("property") == "twitter:image":
+                    if meta.get("name") == "twitter:image":
                         image_url = meta.get("content")
                         break
                 else:
