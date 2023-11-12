@@ -313,15 +313,14 @@ class DiscordBridge(niobot.Module):
                         self.log.debug("Ignoring discord message from myself.")
                         continue
                     elif payload.is_automated:
-                        self.log.debug("Ignoring discord message from webhook.")
+                        self.log.debug("Ignoring discord message from webhook or bot.")
                         continue
 
                     reply_to = None
                     if payload.reply_to:
-                        for cached_message in self.message_cache:
-                            if cached_message["discord"].message_id == payload.reply_to.message_id:
-                                reply_to = cached_message["matrix"].event_id
-                                break
+                        if db := await self.get_message_from_db(discord_id=payload.reply_to.message_id):
+                            reply_to = db
+                            break
                         else:
                             self.log.debug("Could not find message reply.")
                     else:
@@ -404,6 +403,7 @@ class DiscordBridge(niobot.Module):
                                         height=attachment.height,
                                         width=attachment.width
                                     )
+                                    await thumbnail_attachment.upload(self.bot)
                                     file_attachment = await discovered.from_file(
                                         temp_file,
                                         height=attachment.height,
@@ -416,6 +416,28 @@ class DiscordBridge(niobot.Module):
                                         height=attachment.height,
                                         width=attachment.width
                                     )
+                                    if temp_file.stat().st_size > 56000:
+                                        thumbnail = await niobot.run_blocking(
+                                            file_attachment.thumbnailify_image,
+                                            temp_file,
+                                        )
+                                        with tempfile.NamedTemporaryFile(
+                                            "wb",
+                                            suffix="-thumbnail.webp"
+                                        ) as thumbnail_temp_file_fd:
+                                            thumbnail_temp_file = Path(thumbnail_temp_file_fd.name)
+                                            thumbnail.save(thumbnail_temp_file_fd, format="webp")
+                                            thumbnail_temp_file_fd.flush()
+                                            thumbnail_temp_file_fd.seek(0)
+                                            thumbnail_attachment = await niobot.ImageAttachment.from_file(
+                                                thumbnail_temp_file,
+                                                attachment.filename + "-thumbnail.webp",
+                                                height=attachment.height,
+                                                width=attachment.width
+                                            )
+                                            await thumbnail_attachment.upload(self.bot)
+                                            file_attachment.thumbnail = thumbnail_attachment
+
                                 case niobot.AudioAttachment:
                                     file_attachment = await discovered.from_file(
                                         temp_file
