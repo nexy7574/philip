@@ -1,3 +1,5 @@
+import traceback
+
 import nio
 import niobot
 import logging
@@ -59,6 +61,7 @@ bot.mount_module("modules.fun")
 bot.mount_module("modules.user_eval")
 bot.mount_module("modules.pypi_releases")
 bot.mount_module("modules.ytdl")
+bot.mount_module("modules.support")
 
 
 @bot.on_event("ready")
@@ -74,7 +77,9 @@ async def on_ready(_):
 
 @bot.on_event("command_error")
 async def on_command_error(ctx: niobot.Context, error: Exception):
-    log.error("Error in command %r: %s", ctx.command, error, exc_info=True)
+    if isinstance(error, niobot.NioBotException):
+        error = error.bottom_of_chain()
+    log.error("Error in command %r: %s", ctx.command, error, exc_info=error)
     await ctx.respond("Error: %s" % error)
 
 
