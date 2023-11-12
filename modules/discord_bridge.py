@@ -296,9 +296,12 @@ class DiscordBridge(niobot.Module):
             if response.status_code == 200:
                 soup = BeautifulSoup(response.text, "html.parser")
                 for meta in soup.find_all("meta"):
+                    self.log.debug(meta)
                     if meta.get("property") == "twitter:image":
                         image_url = meta.get("content")
                         break
+                else:
+                    raise RuntimeError("Could not find twitter:image meta tag.")
 
                 if image_url:
                     self.log.debug("Found GIF URL: %s", image_url)
