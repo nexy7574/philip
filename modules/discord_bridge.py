@@ -320,7 +320,6 @@ class DiscordBridge(niobot.Module):
                     if payload.reply_to:
                         if db := await self.get_message_from_db(discord_id=payload.reply_to.message_id):
                             reply_to = db
-                            break
                         else:
                             self.log.debug("Could not find message reply.")
                     else:
