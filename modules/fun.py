@@ -89,4 +89,4 @@ class FunModule(niobot.Module):
                 return
 
         http = await self.bot.mxc_to_http(url)
-        return await ctx.respond("Avatar for %s: %s (`{}`)" % (target_id, http, url))
+        return await ctx.respond("Avatar for %s: %s (`%s`)" % (target_id, http, url))
