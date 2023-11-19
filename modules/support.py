@@ -1,5 +1,6 @@
 import datetime
 import logging
+import textwrap
 
 import httpx
 import niobot
@@ -19,6 +20,24 @@ class SupportModule(niobot.Module):
         if self.room_id:
             return ctx.room.room_id == self.room_id
         return False
+
+    @niobot.event("message")
+    async def on_message(self, room: niobot.MatrixRoom, message: niobot.RoomMessageText):
+        if message.body.strip() == self.bot.user_id:
+            t = textwrap.dedent(
+                """
+                Hello {}! I am Philip. My prefix is `!`, and you can see a list of commands via `!help`.
+                You can contact my developer, [@nex:nexy7574.co.uk](https://matrix.to/#/@nex:nexy7574.co.uk).
+                *If you don't want me here, you can get an admin or mod to kick me. I won't be offended.*
+                *Powered by [NioBot](https://nio-bot.dev)*
+                """.format(message.sender)
+            )
+            return await self.bot.send_message(
+                room.room_id,
+                t,
+                message_type="m.notice",
+                reply_to=message.event_id
+            )
 
     @niobot.command("python-eol")
     async def python_eol(self, ctx: niobot.Context, no_table: bool = False):
