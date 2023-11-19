@@ -36,3 +36,57 @@ class FunModule(niobot.Module):
                 file.seek(0)
                 attachment = await niobot.ImageAttachment.from_file(file.name)
                 await ctx.respond(data["alt"], file=attachment)
+
+    @niobot.command()
+    async def avatar(self, ctx: niobot.Context, target: str = "self"):
+        """Fetches and provides a download link to an avatar.
+
+        Target can be 'self', for yourself, 'room' for the current room, or a user ID, or a room ID.
+        """
+        parsed: niobot.MatrixUser | niobot.MatrixRoom | str
+        target_lower = target.casefold()
+        if target_lower not in ("self", "room"):
+            try:
+                parsed: niobot.MatrixRoom = await niobot.RoomParser.parse(ctx, None, target)
+            except niobot.CommandParserError:
+                try:
+                    parsed: niobot.MatrixUser = await niobot.parsers.MatrixUserParser.parse(ctx, None, target)
+                except niobot.CommandParserError:
+                    await ctx.respond("Unable to parse target")
+                    return
+        else:
+            if target_lower == "self":
+                parsed = ctx.message.sender
+            else:
+                parsed = ctx.room
+
+        if isinstance(parsed, niobot.MatrixUser):
+            target_id = parsed.user_id
+        elif isinstance(parsed, niobot.MatrixRoom):
+            target_id = parsed.room_id
+        else:
+            target_id = parsed
+
+        if not target_id.startswith(("!", "#")):
+            # User
+            response = await self.bot.get_profile(target_id)
+            if not isinstance(response, niobot.ProfileGetResponse):
+                await ctx.respond(f"Unable to fetch profile: `{response!r}`")
+                return
+            if not response.avatar_url:
+                await ctx.respond("No avatar set")
+                return
+            url = response.avatar_url
+        else:
+            # Room
+            if target_id not in self.bot.rooms:
+                await ctx.respond("I'm not in that room")
+                return
+            room = self.bot.rooms[target_id]
+            url = room.room_avatar_url
+            if not url:
+                await ctx.respond("No avatar set")
+                return
+
+        http = await self.bot.mxc_to_http(url)
+        return await ctx.respond("Avatar for %s: %s (`{}`)" % (target_id, http, url))
