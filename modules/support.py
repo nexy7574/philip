@@ -27,8 +27,6 @@ class SupportModule(niobot.Module):
         If no_table is False, the output will be an HTML table.
         In the event your client does not support HTML tables, set no_table to True, and the output will be a list.
         """
-        if not self.is_in_support_room(ctx):
-            return
 
         msg = await ctx.respond("Loading...")
         async with httpx.AsyncClient() as session:
