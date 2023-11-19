@@ -5,6 +5,7 @@ import niobot
 import logging
 from util import config
 
+log = logging.getLogger("philip.runtime")
 PHILIP_CONF = config["philip"]
 if "logging" in PHILIP_CONF:
     LOGGING_CONF = PHILIP_CONF["logging"]
@@ -43,7 +44,6 @@ if "logging" in PHILIP_CONF:
 
 logging.getLogger("peewee").setLevel(logging.CRITICAL)
 logging.getLogger("nio.responses").setLevel(logging.ERROR)
-log = logging.getLogger("philip.runtime")
 bot = niobot.NioBot(
     PHILIP_CONF.get("homeserver", "https://matrix.nexy7574.co.uk"),
     PHILIP_CONF.get("user_id", "@philip:nexy7574.co.uk"),
@@ -67,12 +67,6 @@ bot.mount_module("modules.support")
 @bot.on_event("ready")
 async def on_ready(_):
     log.info("Logged in!")
-    response = await bot.join("!8ybQEAbfsaJNnFWa:nexy7574.co.uk")
-    if isinstance(response, nio.JoinError):
-        log.critical(response.message)
-        log.critical(response.status_code)
-        log.critical(response.retry_after_ms)
-        log.critical(response.soft_logout)
 
 
 @bot.on_event("command_error")
