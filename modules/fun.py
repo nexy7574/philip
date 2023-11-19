@@ -38,10 +38,12 @@ class FunModule(niobot.Module):
                 await ctx.respond(data["alt"], file=attachment)
 
     @niobot.command()
-    async def avatar(self, ctx: niobot.Context, target: str = "self"):
+    async def avatar(self, ctx: niobot.Context, target: str = "self", server: str = "yours"):
         """Fetches and provides a download link to an avatar.
 
         Target can be 'self', for yourself, 'room' for the current room, or a user ID, or a room ID.
+
+        Server is an optional server to download via. By default, this is your homeserver.
         """
         parsed: niobot.MatrixUser | niobot.MatrixRoom | str
         target_lower = target.casefold()
@@ -88,5 +90,8 @@ class FunModule(niobot.Module):
                 await ctx.respond("No avatar set")
                 return
 
-        http = await self.bot.mxc_to_http(url)
+        homeserver = server
+        if homeserver == "yours":
+            _, homeserver = ctx.message.sender.rsplit(":", 1)
+        http = await self.bot.mxc_to_http(url, homeserver)
         return await ctx.respond("Avatar for %s: %s (`%s`)" % (target_id, http, url))
