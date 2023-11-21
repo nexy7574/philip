@@ -83,7 +83,7 @@ class FunModule(niobot.Module):
         else:
             # Room
             if target_id not in self.bot.rooms:
-                await ctx.respond("I'm not in that room")
+                await ctx.respond("I'm not in that room. You can invite me, if you would like, and I will join.")
                 return
             room = self.bot.rooms[target_id]
             url = room.room_avatar_url
