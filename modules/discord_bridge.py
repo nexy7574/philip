@@ -472,7 +472,7 @@ class DiscordBridge(niobot.Module):
                             root.event_id,
                             payload.message_id,
                         )
-                        self.last_message = root
+                        self.last_message = payload
                     except niobot.MessageException as e:
                         self.log.error("Failed to send bridge message to matrix: %r", e, exc_info=True)
                         continue
