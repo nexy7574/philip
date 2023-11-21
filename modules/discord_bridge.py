@@ -151,12 +151,18 @@ class DiscordBridge(niobot.Module):
         img.save(path)
         return path
 
-    async def get_image_from_cache(self, http: str, *, round: bool = False, encrypted: bool = False) -> Optional[str]:
+    async def get_image_from_cache(
+            self,
+            http: str,
+            *,
+            make_round: bool = False,
+            encrypted: bool = False
+    ) -> Optional[str]:
         """
         Fetches an image from the cache, or if not found, uploads it and returns the mxc.
 
         :param http: The HTTP URL to fetch
-        :param round: Whether to circle the image
+        :param make_round: Whether to circle the image
         :param encrypted: Whether the image is encrypted
         :return: The resolved MXC URL
         """
@@ -185,7 +191,7 @@ class DiscordBridge(niobot.Module):
                         fd.flush()
                         fd.seek(0)
                         fd_path = Path(fd.name)
-                        if round:
+                        if make_round:
                             fd_path = self.make_image_round(fd_path)
                         attachment = await niobot.which(fd_path).from_file(fd_path)
                         await attachment.upload(self.bot, encrypted=encrypted)
@@ -337,6 +343,16 @@ class DiscordBridge(niobot.Module):
                                 webp_temp_file_fd.seek(0)
                                 return webp_temp_file
 
+    @staticmethod
+    def convert_image(path: Path, quality: int = 90, speed: int = 0) -> Path:
+        speed = 6 - speed
+        with tempfile.NamedTemporaryFile("wb", suffix=str(path.with_suffix(".webp")), delete=False) as temp_fd:
+            img = PIL.Image.open(path)
+            img = img.convert("RGBA")
+            img.save(temp_fd, format="webp", quality=quality, method=speed)
+            temp_fd.flush()
+            return Path(temp_fd.name)
+
     async def poll_loop(self, client: httpx.AsyncClient):
         if not self.bot.is_ready.is_set():
             await self.bot.is_ready.wait()
@@ -420,7 +436,7 @@ class DiscordBridge(niobot.Module):
                     if payload.content:
                         new_content = ""
                         if self.should_prepend_username(payload):
-                            avatar = await self.get_image_from_cache(payload.avatar, round=True)
+                            avatar = await self.get_image_from_cache(payload.avatar, make_round=True)
                             if avatar:
                                 avatar = '<img src="%s" width="16px" height="16px"> ' % avatar
                             else:
@@ -456,6 +472,7 @@ class DiscordBridge(niobot.Module):
                             root.event_id,
                             payload.message_id,
                         )
+                        self.last_message = root
                     except niobot.MessageException as e:
                         self.log.error("Failed to send bridge message to matrix: %r", e, exc_info=True)
                         continue
@@ -511,32 +528,18 @@ class DiscordBridge(niobot.Module):
                                         thumbnail=thumbnail_attachment
                                     )
                                 case niobot.ImageAttachment:
-                                    file_attachment = await discovered.from_file(
+                                    # Convert it to webp.
+                                    new_file = await niobot.run_blocking(
+                                        self.convert_image,
                                         temp_file,
+                                        speed=0,
+                                        quality=80
+                                    )
+                                    file_attachment = await discovered.from_file(
+                                        new_file,
                                         height=attachment.height,
                                         width=attachment.width
                                     )
-                                    if temp_file.stat().st_size > 56000:
-                                        thumbnail = await niobot.run_blocking(
-                                            file_attachment.thumbnailify_image,
-                                            temp_file,
-                                        )
-                                        with tempfile.NamedTemporaryFile(
-                                            "wb",
-                                            suffix="-thumbnail.webp"
-                                        ) as thumbnail_temp_file_fd:
-                                            thumbnail_temp_file = Path(thumbnail_temp_file_fd.name)
-                                            thumbnail.save(thumbnail_temp_file_fd, format="webp")
-                                            thumbnail_temp_file_fd.flush()
-                                            thumbnail_temp_file_fd.seek(0)
-                                            thumbnail_attachment = await niobot.ImageAttachment.from_file(
-                                                thumbnail_temp_file,
-                                                attachment.filename + "-thumbnail.webp",
-                                                height=attachment.height,
-                                                width=attachment.width
-                                            )
-                                            await thumbnail_attachment.upload(self.bot)
-                                            file_attachment.thumbnail = thumbnail_attachment
 
                                 case niobot.AudioAttachment:
                                     file_attachment = await discovered.from_file(
