@@ -1,4 +1,5 @@
 import traceback
+import typing
 
 import nio
 import niobot
@@ -75,6 +76,33 @@ async def on_command_error(ctx: niobot.Context, error: Exception):
         error = error.bottom_of_chain()
     log.error("Error in command %r: %s", ctx.command, error, exc_info=error)
     await ctx.respond("Error: %s" % error)
+
+
+@bot.command()
+async def leave(ctx: niobot.Context, room: niobot.MatrixRoom = None):
+    """Leaves the room.
+
+    If room is not specified, leaves the current room.
+    You cannot specify room unless you're the bot owner.
+
+    You must have the KICK_MEMBERS permission to use this command.
+    """
+    if room is not None:
+        if ctx.message.sender != ctx.client.owner_id:
+            await ctx.respond("You must be the bot owner to leave a room you're not currently in.")
+            return
+    else:
+        room: niobot.MatrixRoom = ctx.room
+
+    if not room.power_levels.can_user_kick(ctx.message.sender) and not ctx.client.is_owner(ctx.message.sender):
+        await ctx.respond("You must have the KICK power level to use this command.")
+        return
+
+    response = await ctx.client.room_leave(room.room_id)
+    if isinstance(response, niobot.RoomLeaveError):
+        return await ctx.respond(f"\N{cross mark} Failed to leave {room.room_id} - `{response!r}`")
+    if room.room_id != ctx.room.room_id:
+        return await ctx.client.add_reaction(ctx.room, ctx.message, "\N{white heavy check mark}")
 
 
 if PHILIP_CONF.get("password"):
