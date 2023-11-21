@@ -349,7 +349,6 @@ class DiscordBridge(niobot.Module):
         speed = 6 - speed
         with tempfile.NamedTemporaryFile("wb", suffix=path.with_suffix(".webp").name, delete=False) as temp_fd:
             img = PIL.Image.open(path)
-            img = img.convert("RGBA")
             kwargs = {
                 "format": "webp",
                 "quality": quality,
