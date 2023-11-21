@@ -210,7 +210,10 @@ class DiscordBridge(niobot.Module):
         async with httpx.AsyncClient() as client:
             while True:
                 try:
-                    await self.poll_loop(client)
+                    _exit = await self.poll_loop(client)
+                    if _exit:
+                        self.log.critical("Notified to exit bridge poll loop.")
+                        break
                 except asyncio.CancelledError:
                     raise
                 except websockets.exceptions.ConnectionClosedError:
@@ -337,7 +340,10 @@ class DiscordBridge(niobot.Module):
     async def poll_loop(self, client: httpx.AsyncClient):
         if not self.bot.is_ready.is_set():
             await self.bot.is_ready.wait()
-        room = self.bot.rooms[self.channel_id]
+        room = self.bot.rooms.get(self.channel_id)
+        if not room:
+            self.log.warning("No room for bridge!")
+            return True
 
         while True:
             async for ws in websockets.client.connect(
