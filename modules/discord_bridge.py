@@ -9,6 +9,7 @@ import typing
 import re
 from pathlib import Path
 
+import PIL.features
 import PIL.Image
 import PIL.ImageDraw
 import nio
@@ -349,7 +350,14 @@ class DiscordBridge(niobot.Module):
         with tempfile.NamedTemporaryFile("wb", suffix=path.with_suffix(".webp").name, delete=False) as temp_fd:
             img = PIL.Image.open(path)
             img = img.convert("RGBA")
-            img.save(temp_fd, format="webp", quality=quality, method=speed)
+            kwargs = {
+                "format": "webp",
+                "quality": quality,
+                "method": speed
+            }
+            if getattr(img, "is_animated", False) and PIL.features.check("webp_anim"):
+                kwargs["save_all"] = True
+            img.save(temp_fd, **kwargs)
             temp_fd.flush()
             return Path(temp_fd.name)
 
