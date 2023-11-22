@@ -5,7 +5,6 @@ import logging
 import subprocess
 import tempfile
 import typing
-import re
 from pathlib import Path
 
 import PIL.features
@@ -408,37 +407,6 @@ class DiscordBridge(niobot.Module):
                             self.log.debug("Could not find message reply.")
                     else:
                         self.log.debug("Message had no reply.")
-
-                    if gif_match := re.match(
-                        r"https://tenor\.com/\S+",
-                        payload.content or ''
-                    ):
-                        self.log.debug("Found tenor GIF: %s", gif_match)
-                        # noinspection PyBroadException
-                        try:
-                            gif = await self.download_gif(payload.content)
-                        except Exception:
-                            self.log.error("Failed to download gif.", exc_info=True)
-                            gif = None
-                        if gif:
-                            self.log.debug("Uploading GIF to matrix.")
-                            gif_attachment = await niobot.ImageAttachment.from_file(
-                                gif,
-                            )
-                            await gif_attachment.upload(self.bot)
-                            payload.content = None
-                            payload.attachments.append(
-                                MessagePayload.MessageAttachmentPayload(
-                                    url=gif_attachment.url,
-                                    proxy_url=gif_attachment.url,
-                                    filename=gif_attachment.file_name,
-                                    size=gif_attachment.size,
-                                    width=gif_attachment.info['w'],
-                                    height=gif_attachment.info['h'],
-                                    content_type=gif_attachment.mime_type,
-                                    ATTACHMENT=gif_attachment
-                                )
-                            )
 
                     if payload.content:
                         new_content = ""
