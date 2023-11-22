@@ -101,6 +101,7 @@ class DiscordBridge(niobot.Module):
             (nio.RoomMessageText, nio.RoomMessageMedia)
         )
         self.task: Optional[asyncio.Task] = None
+        self.bridge_lock = asyncio.Lock()
 
     @niobot.event("ready")
     async def on_ready(self, _):
@@ -344,8 +345,7 @@ class DiscordBridge(niobot.Module):
                                 webp_temp_file_fd.seek(0)
                                 return webp_temp_file
 
-    @staticmethod
-    def convert_image(path: Path, quality: int = 90, speed: int = 0) -> Path:
+    def convert_image(self, path: Path, quality: int = 90, speed: int = 0) -> Path:
         speed = 6 - speed
         with tempfile.NamedTemporaryFile("wb", suffix=path.with_suffix(".webp").name, delete=False) as temp_fd:
             img = PIL.Image.open(path)
@@ -356,6 +356,7 @@ class DiscordBridge(niobot.Module):
             }
             if getattr(img, "is_animated", False) and PIL.features.check("webp_anim"):
                 kwargs["save_all"] = True
+            self.log.info("Converting image %r to webp with kwargs %r", path, kwargs)
             img.save(temp_fd, **kwargs)
             temp_fd.flush()
             return Path(temp_fd.name)
@@ -461,107 +462,114 @@ class DiscordBridge(niobot.Module):
                     self.log.info("Rendered content for matrix: %r", new_content)
 
                     self.log.debug("Sending message to %r", room)
-                    try:
-                        root = await self.bot.send_message(
-                            room,
-                            new_content,
-                            reply_to=reply_to,
-                            message_type="m.text",
-                            clean_mentions=False,
-                            override={
-                                "body": body
-                            }
-                        )
-                        cache = await self.get_message_from_db(discord_id=payload.message_id)
-                        if cache:
-                            await self.delete_message_from_db(discord_id=payload.message_id)
-                        await self.add_message_to_db(
-                            root.event_id,
-                            payload.message_id,
-                        )
-                        self.last_message = payload
-                    except niobot.MessageException as e:
-                        self.log.error("Failed to send bridge message to matrix: %r", e, exc_info=True)
-                        continue
-
-                    for attachment in payload.attachments:
-                        self.log.info("Processing attachment %s", attachment)
-                        if attachment.url.startswith("mxc://"):
-                            # Already uploaded. All we need to do is send it.
-                            await self.bot.send_message(
+                    async with self.bridge_lock:
+                        try:
+                            root = await self.bot.send_message(
                                 room,
-                                file=attachment.ATTACHMENT,
-                                reply_to=root.event_id,
+                                new_content,
+                                reply_to=reply_to,
+                                message_type="m.text",
+                                clean_mentions=False,
+                                override={
+                                    "body": body
+                                }
                             )
+                            cache = await self.get_message_from_db(discord_id=payload.message_id)
+                            if cache:
+                                await self.delete_message_from_db(discord_id=payload.message_id)
+                            await self.add_message_to_db(
+                                root.event_id,
+                                payload.message_id,
+                            )
+                            self.last_message = payload
+                        except niobot.MessageException as e:
+                            self.log.error("Failed to send bridge message to matrix: %r", e, exc_info=True)
                             continue
 
-                        with tempfile.NamedTemporaryFile(
-                            "wb",
-                            suffix=attachment.filename,
-                        ) as temp_file_fd:
-                            temp_file = Path(temp_file_fd.name)
-                            response = await client.get(attachment.url)
-                            if response.status_code == 404:
-                                response = await client.get(attachment.proxy_url)
-
-                            if response.status_code != 200:
-                                self.log.warning("Failed to download attachment: %s", response.status_code)
+                        for attachment in payload.attachments:
+                            self.log.info("Processing attachment %s", attachment)
+                            if attachment.url.startswith("mxc://"):
+                                # Already uploaded. All we need to do is send it.
+                                await self.bot.send_message(
+                                    room,
+                                    file=attachment.ATTACHMENT,
+                                    reply_to=root.event_id,
+                                )
                                 continue
-                            temp_file_fd.write(response.content)
-                            temp_file_fd.flush()
-                            temp_file_fd.seek(0)
 
-                            discovered = niobot.which(temp_file)
-                            match discovered:
-                                case niobot.VideoAttachment:
-                                    # Do some additional processing.
-                                    first_frame_bytes = await niobot.run_blocking(
-                                        niobot.first_frame,
-                                        temp_file,
-                                        "webp"
-                                    )
-                                    first_frame_bio = io.BytesIO(first_frame_bytes)
-                                    thumbnail_attachment = await niobot.ImageAttachment.from_file(
-                                        first_frame_bio,
-                                        attachment.filename + "-thumbnail.webp",
-                                        height=attachment.height,
-                                        width=attachment.width
-                                    )
-                                    await thumbnail_attachment.upload(self.bot)
-                                    file_attachment = await discovered.from_file(
-                                        temp_file,
-                                        height=attachment.height,
-                                        width=attachment.width,
-                                        thumbnail=thumbnail_attachment
-                                    )
-                                case niobot.ImageAttachment:
-                                    # Convert it to webp.
-                                    new_file = await niobot.run_blocking(
-                                        self.convert_image,
-                                        temp_file,
-                                        speed=0,
-                                        quality=80
-                                    )
-                                    file_attachment = await discovered.from_file(
-                                        new_file,
-                                        height=attachment.height,
-                                        width=attachment.width
-                                    )
+                            with tempfile.NamedTemporaryFile(
+                                "wb",
+                                suffix=attachment.filename,
+                            ) as temp_file_fd:
+                                temp_file = Path(temp_file_fd.name)
+                                response = await client.get(attachment.url)
+                                if response.status_code == 404:
+                                    response = await client.get(attachment.proxy_url)
 
-                                case niobot.AudioAttachment:
-                                    file_attachment = await discovered.from_file(
-                                        temp_file
-                                    )
-                                case niobot.FileAttachment:
-                                    file_attachment = await discovered.from_file(
-                                        temp_file
-                                    )
-                            await self.bot.send_message(
-                                room,
-                                file=file_attachment,
-                                reply_to=root.event_id,
-                                message_type=file_attachment.type.value
-                            )
+                                if response.status_code != 200:
+                                    self.log.warning("Failed to download attachment: %s", response.status_code)
+                                    continue
+                                temp_file_fd.write(response.content)
+                                temp_file_fd.flush()
+                                temp_file_fd.seek(0)
+
+                                discovered = niobot.which(temp_file)
+                                match discovered:
+                                    case niobot.VideoAttachment:
+                                        # Do some additional processing.
+                                        first_frame_bytes = await niobot.run_blocking(
+                                            niobot.first_frame,
+                                            temp_file,
+                                            "webp"
+                                        )
+                                        first_frame_bio = io.BytesIO(first_frame_bytes)
+                                        thumbnail_attachment = await niobot.ImageAttachment.from_file(
+                                            first_frame_bio,
+                                            attachment.filename + "-thumbnail.webp",
+                                            height=attachment.height,
+                                            width=attachment.width
+                                        )
+                                        await thumbnail_attachment.upload(self.bot)
+                                        file_attachment = await discovered.from_file(
+                                            temp_file,
+                                            height=attachment.height,
+                                            width=attachment.width,
+                                            thumbnail=thumbnail_attachment
+                                        )
+                                    case niobot.ImageAttachment:
+                                        # Convert it to webp.
+                                        if await niobot.run_blocking(
+                                                niobot.detect_mime_type,
+                                                temp_file
+                                        ) != "image/gif":
+                                            new_file = await niobot.run_blocking(
+                                                self.convert_image,
+                                                temp_file,
+                                                speed=0,
+                                                quality=80
+                                            )
+                                        else:
+                                            new_file = temp_file
+                                        file_attachment = await discovered.from_file(
+                                            new_file,
+                                            height=attachment.height,
+                                            width=attachment.width
+                                        )
+
+                                    case niobot.AudioAttachment:
+                                        file_attachment = await discovered.from_file(
+                                            temp_file
+                                        )
+                                    case niobot.FileAttachment:
+                                        file_attachment = await discovered.from_file(
+                                            temp_file
+                                        )
+                                await self.bot.send_message(
+                                    room,
+                                    file=file_attachment,
+                                    reply_to=root.event_id,
+                                    message_type=file_attachment.type.value
+                                )
 
     async def on_message(self, room: nio.MatrixRoom, message: nio.RoomMessageText | nio.RoomMessageMedia):
         if self.bot.is_old(message):
