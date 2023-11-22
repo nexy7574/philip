@@ -4,7 +4,6 @@ import json
 import logging
 import subprocess
 import tempfile
-import time
 import typing
 import re
 from pathlib import Path
@@ -411,7 +410,7 @@ class DiscordBridge(niobot.Module):
                         self.log.debug("Message had no reply.")
 
                     if gif_match := re.match(
-                        r"https://tenor\.com/.+",
+                        r"https://tenor\.com/\S+",
                         payload.content or ''
                     ):
                         self.log.debug("Found tenor GIF: %s", gif_match)
@@ -446,7 +445,7 @@ class DiscordBridge(niobot.Module):
                         if self.should_prepend_username(payload):
                             avatar = await self.get_image_from_cache(payload.avatar, make_round=True)
                             if avatar:
-                                avatar = '<img src="%s" width="16px" height="16px"> ' % avatar
+                                avatar = '<img src="%s" width="16px" height="16px" alt="[\U0001f464]"> ' % avatar
                             else:
                                 avatar = ""
                             new_content += f"**{avatar}{payload.author}:**\n"
@@ -618,7 +617,7 @@ class DiscordBridge(niobot.Module):
                     json=body
                 )
                 if response.status_code in range(200, 300):
-                    self.log.info("Message %s sent to discord bridge via webhook", message.event_id)
+                    self.log.debug("Message %s sent to discord bridge via webhook", message.event_id)
                     return
                 else:
                     self.log.warning(
@@ -645,4 +644,4 @@ class DiscordBridge(niobot.Module):
                 await self.bot.add_reaction(room, message, "\N{CROSS MARK}")
                 return
             else:
-                self.log.info("Message %s sent to discord bridge", message.event_id)
+                self.log.debug("Message %s sent to discord bridge", message.event_id)
