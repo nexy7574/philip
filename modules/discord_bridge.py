@@ -459,7 +459,7 @@ class DiscordBridge(niobot.Module):
                     else:
                         new_content = body = "@%s sent no content." % payload.author
 
-                    self.log.info("Rendered content for matrix: %r", new_content)
+                    self.log.debug("Rendered content for matrix: %r", new_content)
 
                     self.log.debug("Sending message to %r", room)
                     async with self.bridge_lock:
@@ -538,10 +538,7 @@ class DiscordBridge(niobot.Module):
                                         )
                                     case niobot.ImageAttachment:
                                         # Convert it to webp.
-                                        if await niobot.run_blocking(
-                                                niobot.detect_mime_type,
-                                                temp_file
-                                        ) != "image/gif":
+                                        if attachment.content_type != "image/gif":
                                             new_file = await niobot.run_blocking(
                                                 self.convert_image,
                                                 temp_file,
