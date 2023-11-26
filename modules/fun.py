@@ -5,6 +5,13 @@ import re
 
 
 class FunModule(niobot.Module):
+
+    @niobot.command()
+    async def ping(self, ctx: niobot.Context):
+        """Pings the bot."""
+        latency = ctx.latency
+        await ctx.respond(f"Pong! Approximately {latency:.2f}ms")
+
     @niobot.command()
     async def xkcd(self, ctx: niobot.Context, comic_number: int = None):
         """Fetches an XKCD comic.
