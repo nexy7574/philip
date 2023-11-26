@@ -270,32 +270,33 @@ class YoutubeDownloadModule(niobot.Module):
         if not isinstance(response, niobot.DownloadResponse):
             await msg.edit("Could not download media: %r" % response)
             return
-        suffix = pathlib.Path(response.filename).suffix
+        suffix = pathlib.Path(response.filename or "no_file_name.bin").suffix
         with tempfile.NamedTemporaryFile("wb", suffix=suffix) as _file:
             _file.write(response.body)
             _file.flush()
             _file.seek(0)
             await msg.edit('Processing, please wait.')
-            media_type = response.content_type or await niobot.run_blocking(niobot.detect_mime_type, _file.name)
-            attachment = await ({
-                'image': niobot.ImageAttachment,
-                'audio': niobot.AudioAttachment,
-                'video': niobot.VideoAttachment
-            }.get(media_type.split("/")[0], niobot.FileAttachment)).from_file(_file.name)
+
+            attachment = await niobot.which(_file.name).from_file(_file.name)
             metadata = await niobot.run_blocking(niobot.get_metadata, _file.name)
+
             duration = getattr(attachment, 'duration', 'N/A')
             resolution = "{0.width}x{0.height}".format(attachment) if hasattr(attachment, 'width') else 'N/A'
+
             lines = [
                 '# Summary',
-                '- **File Type**: %s' % media_type,
+                '- **File Type**: %s' % attachment.mime_type,
                 '- **File Size**: {:.1f} MiB ({:,} bytes)'.format(attachment.size_as('mib'), len(response.body)),
-                '- **File Name**: `%s`' % response.filename or pathlib.Path(_file.name).name,
-                '- **URL**: HTTP: %s | MXC: %s' % (await self.bot.mxc_to_http(event.url), event.url),
+                '- **File Name**: `%s`' % (response.filename or pathlib.Path(_file.name).name),
+                '- **URL**: HTTP: %s | MXC: %s' % (
+                    await self.bot.mxc_to_http(event.url, ctx.message.sender.split(":", 1)[-1]),
+                    event.url
+                ),
                 "",
                 '# Metadata',
                 '- **Duration**: %s seconds' % duration,
                 '- **Resolution**: %s' % resolution,
-                '- **MIME Type**: %s' % media_type,
+                '- **MIME Type**: %s' % attachment.mime_type,
                 '',
                 '# Raw probe info',
                 '```json\n%s\n```' % json.dumps(metadata, indent=4, default=repr)
