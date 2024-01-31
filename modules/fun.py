@@ -104,4 +104,4 @@ class FunModule(niobot.Module):
         http = await self.bot.mxc_to_http(url, homeserver)
         if not http.startswith("http"):
             http = "http://" + http
-        return await ctx.respond("Avatar for %s: [`%s`](%s)" % (target_id, http, url))
+        return await ctx.respond("Avatar for %s: [`%s`](%s)" % (target_id, url, http))
