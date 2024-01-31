@@ -105,7 +105,7 @@ class FunModule(niobot.Module):
         if not http.startswith("http"):
             http = "http://" + http
         return await ctx.respond(
-            'Avatar for {target}: [`{mxc}`]({http}) '
+            'Avatar for {target}: [`{mxc}`]({http})\n\n'
             '<img src="{mxc}" width="128px" height="128px" alt="avatar"/>'.format(
                 target=target_id,
                 mxc=url,
