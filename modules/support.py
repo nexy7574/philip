@@ -156,3 +156,23 @@ class SupportModule(niobot.Module):
                 niobot_version_url
             )
         )
+
+    @niobot.command("about", aliases=["info"])
+    async def get_info(self, ctx: niobot.Context):
+        """Get information about Philip (e.g. owner and license)"""
+        await ctx.respond(
+            textwrap.dedent(
+                f"""
+                Philip is a bot written in Python, using the [NioBot](https://nio-bot.dev) framework.
+                
+                Philip is open source, and you can find the source code [on GitHub](https://github.com/nexy7574/philip).
+                
+                Philip is licensed under GPLv3, and NioBot is licensed under the LGPLv3 license.
+                
+                You can find version information via the `!version` command.
+                
+                
+                This instance is run by: {self.bot.owner_id}
+                """
+            )
+        )
