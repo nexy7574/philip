@@ -1,6 +1,10 @@
+import asyncio
 import datetime
 import logging
+import pathlib
 import textwrap
+import importlib.metadata
+import packaging.version
 
 import httpx
 import niobot
@@ -123,3 +127,32 @@ class SupportModule(niobot.Module):
                 lines.append("* " + text)
 
             return await msg.edit("\n".join(lines))
+
+    @niobot.command("version")
+    async def version(self, ctx: niobot.Context):
+        """Get the version of Philip"""
+        if pathlib.Path(".git").exists():
+            process = await asyncio.create_subprocess_exec(
+                "git", "rev-parse", "HEAD", stdout=asyncio.subprocess.PIPE
+            )
+            stdout, _ = await process.communicate()
+            bot_version = stdout.decode().strip()[:7]
+            bot_version_url = "https://github.com/nexy7574/philip/commit/%s" % stdout.decode().strip()
+        else:
+            bot_version = "Unknown"
+            bot_version_url = "https://github.com/nexy7574/philip"
+
+        niobot_version = packaging.version.parse(importlib.metadata.version("nio-bot"))
+        if not niobot_version.is_devrelease:
+            niobot_version_url = "https://pypi.org/project/nio-bot/%s/" % niobot_version
+        else:
+            niobot_version_url = "https://github.com/nexy7574/niobot/tree/%s" % niobot_version.local[1:]
+
+        await ctx.respond(
+            "Bot version: [%s](%s)\nNioBot version: [%s](%s)" % (
+                bot_version,
+                bot_version_url,
+                niobot_version,
+                niobot_version_url
+            )
+        )
