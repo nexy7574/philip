@@ -1,0 +1,60 @@
+[philip]
+# Meta configuration
+homeserver = "https://matrix.nexy7574.co.uk"
+user_id = "@philip:nexy7574.co.uk"
+debug = false
+device_id = "development"
+command_prefix = "!"
+
+# password = "account_password (discouraged)"
+access_token = "<your_access_token>"
+# You can get an access token with `niocli get-access-token`.
+
+[philip.logging]
+# Logging configuration
+level = "DEBUG"
+# ^ one of DEBUG, INFO, WARNING, ERROR, CRITICAL
+file = "philip.log"
+# ^ can be any file name or path. If not set, logs will not be written to a file.
+mirror_to_stdout = true
+# ^ if logging to a file, and is true, output will be mirrored to stdout. Otherwise, it may be written to a file only.
+file_mode = "a"
+# ^ if logging to a file, either `w` (for over(w)rite), or `a` (for (a)ppend).
+silence = ["httpcore.http11", "httpcore.connection", "nio.rooms", "nio.events.misc"]
+# ^ list of loggers to silence. This is useful for silencing noisy loggers.
+# You probably won't need to change this unless you're debugging something.
+
+[philip.bridge]
+# Discord bridge configuration.
+# You likely cannot use this, so it is all commented out.
+# If you want to use the discord bridge, you need the counterpart discord bot.
+# This discord bot (and the entire bridge) is designed to only run in one server
+# with one configuration.
+# If you really want to try, take a look at https://github.com/nexy7574/LCC-Bot
+
+# websocket_endpoint = "ws://localhost:3762/bridge/recv"
+# ^ The websocket endpoint for the bridge.
+# bridge_endpoint = "http://localhost:3762/bridge"
+# ^ The HTTP endpoint for the bridge.
+# guild_id = discord_guild_id_int
+# ^ The guild ID of the discord server. Optional.
+# channel_id = "matrix_room_id"
+# ^ The room ID of matrix.
+# webhook_url="webhook-url"
+# ^ A webhook URL to send to. Optional, can fall back to sending via bot account, but this gives you usernames and avatars.
+# token = "discord-bot-token"
+# ^ The discord bot's token, for authentication
+# webhook_wait = true
+# ^ Whether to wait for webhooks to finish sending before sending the next message. Optional, defaults to true.
+# avatar_cache_path = "./images.cache.db"
+# ^ Where to cache avatar URLs. Optional, defaults to "./images.cache.db".
+
+[philip.support]
+# Configuration for the support room @ #nio-bot:nexy7574.co.uk
+room_id = "!8ybQEAbfsaJNnFWa:nexy7574.co.uk"
+# ^ The ID of the support room
+cache_path = "./rss-cache.json"
+# ^ where to cache RSS feeds, for the package update feed fetcher.
+
+[philip.pypi]
+room_id = "!8ybQEAbfsaJNnFWa:nexy7574.co.uk"
