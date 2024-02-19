@@ -652,19 +652,22 @@ class DiscordBridge(niobot.Module):
         async with httpx.AsyncClient() as client:
             if self.webhook_url:
                 self.log.debug("Have a registered webhook URL. Using it.")
-                # if avatar is None:
-                #     self.log.debug("Fetching %s avatar from matrix.", message.sender)
-                #     profile = await self.bot.get_profile(message.sender)
-                #     if isinstance(profile, nio.ProfileGetResponse):
-                #         if profile.avatar_url:
-                #             self.log.debug("Fetching avatar from %s", profile.avatar_url)
-                #             avatar = await self.bot.mxc_to_http(profile.avatar_url)
-                #         else:
-                #             self.log.debug("No avatar found.")
-                #     else:
-                #         self.log.warning("Failed to fetch profile for %s", message.sender)
-                # else:
-                #     self.log.debug("Already have an avatar")
+                try:
+                    if avatar is None:
+                        self.log.debug("Fetching %s avatar from matrix.", message.sender)
+                        profile = await self.bot.get_profile(message.sender)
+                        if isinstance(profile, nio.ProfileGetResponse):
+                            if profile.avatar_url:
+                                self.log.debug("Fetching avatar from %s", profile.avatar_url)
+                                avatar = await self.bot.mxc_to_http(profile.avatar_url)
+                            else:
+                                self.log.debug("No avatar found.")
+                        else:
+                            self.log.warning("Failed to fetch profile for %s", message.sender)
+                    else:
+                        self.log.debug("Already have an avatar")
+                except Exception as e:
+                    self.log.error("Error while fetching avatar: %s", e, exc_info=True)
                 self.log.debug("Preparing body")
                 body = {
                     "content": payload.message,
