@@ -747,6 +747,15 @@ class DiscordBridge(niobot.Module):
                 await ctx.respond(
                     "\u23F3 I have sent you a link in a direct room."
                 )
+            else:
+                self.log.warning(
+                    "Unexpected status code %d while binding account: %s",
+                    response.status_code,
+                    response.text
+                )
+                await ctx.respond(
+                    "\N{cross mark} Failed to bind your account. Please try again later."
+                )
     
     @niobot.command("unbind")
     async def unbind(self, ctx: niobot.Context):
