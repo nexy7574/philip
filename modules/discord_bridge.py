@@ -6,6 +6,7 @@ import subprocess
 import tempfile
 import typing
 from pathlib import Path
+from urllib.parse import urlparse
 
 import PIL.features
 import PIL.Image
@@ -19,7 +20,7 @@ import aiosqlite
 from bs4 import BeautifulSoup
 
 from util import config
-from typing import Optional
+from typing import Optional, Union
 
 
 class BridgeResponse(pydantic.BaseModel):
@@ -68,6 +69,7 @@ class DiscordBridge(niobot.Module):
 
         self.token = self.config.get("token", None)
         assert self.token, "No token set for bridge - unable to proceed."
+        self.guild_id = self.config.get("guild_id", None)
         self.channel_id = self.config.get("channel_id", "!WrLNqENUnEZvLJiHsu:nexy7574.co.uk")
         self.webhook_url = self.config.get("webhook_url", None)
         if not self.webhook_url:
@@ -76,6 +78,8 @@ class DiscordBridge(niobot.Module):
         self.websocket_endpoint = self.config.get("websocket_endpoint")
         if not self.websocket_endpoint:
             self.websocket_endpoint = "wss://droplet.nexy7574.co.uk/jimmy/bridge/recv"
+        self.jimmy_api_domain = urlparse(self.websocket_endpoint).hostname
+        self.jimmy_api = "https://" + self.jimmy_api_domain + "/jimmy"
 
         self.avatar_cache_path = self.config.get("avatar_cache_path")
         if not self.avatar_cache_path:
@@ -100,6 +104,12 @@ class DiscordBridge(niobot.Module):
         )
         self.task: Optional[asyncio.Task] = None
         self.bridge_lock = asyncio.Lock()
+
+        self.bind_cache = {}
+        # For the webhook.
+        # {
+        #     user_id: {"username": "raaa", "avatar": "https://cdn.discordapp.com/...", "expires": 123.45}
+        # }
 
     @niobot.event("ready")
     async def on_ready(self, _):
@@ -150,6 +160,65 @@ class DiscordBridge(niobot.Module):
         img.thumbnail((16, 16), PIL.Image.Resampling.LANCZOS, 3)
         img.save(path)
         return path
+    
+    async def get_discord_user(self, user_id: int) -> Optional[dict[str, Optional[str, float]]]:
+        """
+        Fetches a user from the discord API.
+        This function is used to fetch user information for the webhook.
+
+        This function will check the memory cache for information first.
+        Information is cached for around a day, before it is soft-expired.
+
+        :param user_id: the user's ID to fetch.
+        :return: {"username": "...", "avatar": "...", "expires": time.time() + 86400}
+        """
+        if user_id in self.bind_cache:
+            if self.bind_cache[user_id]["expires"] > time.time():
+                self.log.debug("Returning cached user info for %d", user_id)
+                return self.bind_cache[user_id]
+            else:
+                self.log.debug("Cached user info for %d has expired.", user_id)
+        else:
+            self.log.debug("No cached user info for %d", user_id)
+        AVATAR_URL = "https://cdn.discordapp.com/avatars/%d/%s.webp?size=256"
+        if self.guild_id:
+            url = "https://discord.com/api/v10/guilds/%d/members/%d" % (self.guild_id, user_id)
+        else:
+            url = "https://discord.com/api/v10/users/%d" % user_id
+        async with httpx.AsyncClient() as client:
+            response = await client.get(
+                url,
+                headers={
+                    "Authorization": "Bot " + self.token
+                }
+            )
+            if response.status_code == 200:
+                data = response.json()
+                user_data = data.get("user", data)
+                display_name = data.get("nick", user_data["username"])
+                avatar = None
+                if data.get("avatar"):
+                    avatar = AVATAR_URL % (user_id, data["avatar"])
+                return {
+                    "username": display_name,
+                    "avatar": avatar,
+                    "expires": time.time() + 86400
+                }
+    
+    async def get_bound_account(self, sender: str) -> Optional[int]:
+        """
+        Fetches the user's bound discord account ID from the Jimmy v1 API.
+
+        :param sender: The matrix sender account
+        :return: The discord ID, if available.
+        """
+        if sender.startswith("@"):
+            sender = sender[1:]
+        
+        async with httpx.AsyncClient() as client:
+            response = await client.get(self.jimmy_api + "/bridge/bind/" + sender)
+            if response.status_code == 200:
+                return response.json()["discord"]
 
     async def get_image_from_cache(
             self,
@@ -559,14 +628,23 @@ class DiscordBridge(niobot.Module):
             filename = message.body
             file_url = await self.bot.mxc_to_http(message.url)
             payload.message = "[{}]({})".format(filename, file_url)
+        
+        bound_account = await self.get_bound_account(message.sender)
+        if bound_account:
+            user_data = await self.get_discord_user(bound_account)
+            if user_data:
+                payload.sender = user_data["username"]
+                if user_data["avatar"]:
+                    payload.avatar = user_data["avatar"]
 
         async with httpx.AsyncClient() as client:
             if self.webhook_url:
-                avatar = None
-                profile = await self.bot.get_profile(message.sender)
-                if isinstance(profile, nio.ProfileGetResponse):
-                    if profile.avatar_url:
-                        avatar = await self.bot.mxc_to_http(profile.avatar_url)
+                avatar = payload.avatar
+                if not avatar:
+                    profile = await self.bot.get_profile(message.sender)
+                    if isinstance(profile, nio.ProfileGetResponse):
+                        if profile.avatar_url:
+                            avatar = await self.bot.mxc_to_http(profile.avatar_url)
                 body = {
                     "content": payload.message,
                     "username": payload.sender[:32],
@@ -594,7 +672,7 @@ class DiscordBridge(niobot.Module):
                         response.status_code
                     )
             response = await client.post(
-                "https://droplet.nexy7574.co.uk/jimmy/bridge",
+                self.jimmy_api + "/bridge",
                 json=payload.model_dump()
             )
             if response.status_code == 400:
@@ -613,3 +691,64 @@ class DiscordBridge(niobot.Module):
                 return
             else:
                 self.log.debug("Message %s sent to discord bridge", message.event_id)
+    
+    @niobot.command("bind")
+    async def bind(self, ctx: niobot.Context):
+        """(discord bridge) Binds your discord account to your matrix account."""
+        existing = await self.get_bound_account(ctx.sender)
+        if existing:
+            return await ctx.respond(
+                "\N{cross mark} You have already bound your account to `{}`.\n"
+                "Use `{}unbind` to unbind your account.".format(existing, self.bot.command_prefix),
+            )
+        async with httpx.AsyncClient() as client:
+            response = await client.get(
+                self.jimmy_api + "/bridge/bind/new",
+                params={"mx_id": ctx.sender[1:]}
+            )
+            if response.status_code == 200:
+                data = await response.json()
+                if data["status"] != "pending":
+                    return await ctx.respond(
+                        "\N{cross mark} Failed to bind your account. Please try again later."
+                    )
+                url = data["url"]
+                await self.bot.send_message(
+                    ctx.sender,
+                    "Please click [here]({}) to bind your discord account.".format(url)
+                )
+                await ctx.respond(
+                    "\u23F3 I have sent you a link in a direct room."
+                )
+    
+    @niobot.command("unbind")
+    async def unbind(self, ctx: niobot.Context):
+        """(discord bridge) Unbinds your account."""
+        existing = await self.get_bound_account(ctx.sender)
+        if not existing:
+            return await ctx.respond(
+                "\N{cross mark} You have not bound your account to any discord account."
+            )
+        async with httpx.AsyncClient() as client:
+            response = await client.delete(
+                self.jimmy_api + "/bridge/bind/" + ctx.sender[1:]
+            )
+            data = response.json()
+            match data.get("status"):
+                case "pending":
+                    url = data["url"]
+                    await self.bot.send_message(
+                        ctx.sender,
+                        "Please click [here]({}) to unbind your discord account.".format(url)
+                    )
+                    await ctx.respond(
+                        "\u23F3 I have sent you a link in a direct room."
+                    )
+                case "ok":
+                    await ctx.respond(
+                        "\N{white heavy check mark} Your account has been unbound."
+                    )
+                case _:
+                    await ctx.respond(
+                        "\N{cross mark} Failed to unbind your account. Please try again later."
+                    )
