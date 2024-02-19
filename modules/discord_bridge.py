@@ -662,7 +662,7 @@ class DiscordBridge(niobot.Module):
 
         async with httpx.AsyncClient() as client:
             if "m.new_content" in message.source["content"]:
-                new_content = message.source["content"]["m.new_content"]
+                new_content = message.source["content"]["m.new_content"]["body"]
                 original_event_id = message.source["content"]["m.relates_to"]["event_id"]
                 if original_event_id in self.edits:
                     response = await client.patch(
