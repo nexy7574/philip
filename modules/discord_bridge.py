@@ -200,6 +200,7 @@ class DiscordBridge(niobot.Module):
                 data = response.json()
                 user_data = data.get("user", data)
                 display_name = data.get("nick", user_data["username"])
+                self.log.debug("Found user %r, caching.", display_name)
                 avatar = None
                 if data.get("avatar"):
                     avatar = AVATAR_URL % (user_id, data["avatar"])
@@ -223,6 +224,7 @@ class DiscordBridge(niobot.Module):
             response = await client.get(self.jimmy_api + "/bind/" + sender)
             if response.status_code == 200:
                 return response.json()["discord"]
+            self.log.debug("No bound account for %s", sender)
 
     async def get_image_from_cache(
             self,
@@ -633,10 +635,13 @@ class DiscordBridge(niobot.Module):
             file_url = await self.bot.mxc_to_http(message.url)
             payload.message = "[{}]({})".format(filename, file_url)
         
+        self.log.debug("checking if %s has a discord bound account", message.sender)
         bound_account = await self.get_bound_account(message.sender)
         if bound_account:
+            self.log.debug("Found bound discord account: %s=%d", message.sender, bound_account)
             user_data = await self.get_discord_user(bound_account)
             if user_data:
+                self.log.debug("Got discord user data for %s", message.sender)
                 payload.sender = user_data["username"]
                 if user_data["avatar"]:
                     payload.avatar = user_data["avatar"]
@@ -661,6 +666,7 @@ class DiscordBridge(niobot.Module):
                 }
                 if avatar:
                     body["avatar_url"] = avatar
+                self.log.debug("Sending message to discord.")
                 response = await client.post(
                     self.webhook_url,
                     params={"wait": self.config.get("webhook_wait", False)},
@@ -675,6 +681,7 @@ class DiscordBridge(niobot.Module):
                         message.event_id,
                         response.status_code
                     )
+            self.log.debug("Sending fallback message.")
             response = await client.post(
                 self.jimmy_api,
                 json=payload.model_dump()
