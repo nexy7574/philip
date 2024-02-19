@@ -661,7 +661,7 @@ class DiscordBridge(niobot.Module):
             self.log.debug("No bound discord account for %s", message.sender)
 
         async with httpx.AsyncClient() as client:
-            if "content.m.new_content" in message.source.flattened():
+            if "content.m.new_content" in message.flattened():
                 new_content = message.source["content"]["m.new_content"]
                 original_event_id = new_content["m.relates_to"]["event_id"]
                 if original_event_id in self.edits:
