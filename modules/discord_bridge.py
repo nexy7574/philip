@@ -220,7 +220,7 @@ class DiscordBridge(niobot.Module):
             sender = sender[1:]
         
         async with httpx.AsyncClient() as client:
-            response = await client.get(self.jimmy_api + "/bridge/bind/" + sender)
+            response = await client.get(self.jimmy_api + "/bind/" + sender)
             if response.status_code == 200:
                 return response.json()["discord"]
 
@@ -707,7 +707,7 @@ class DiscordBridge(niobot.Module):
             )
         async with httpx.AsyncClient() as client:
             response = await client.get(
-                self.jimmy_api + "/bridge/bind/new",
+                self.jimmy_api + "/bind/new",
                 params={"mx_id": ctx.message.sender[1:]}
             )
             if response.status_code == 200:
@@ -735,7 +735,7 @@ class DiscordBridge(niobot.Module):
             )
         async with httpx.AsyncClient() as client:
             response = await client.delete(
-                self.jimmy_api + "/bridge/bind/" + ctx.message.sender[1:]
+                self.jimmy_api + "/bind/" + ctx.message.sender[1:]
             )
             data = response.json()
             match data.get("status"):
