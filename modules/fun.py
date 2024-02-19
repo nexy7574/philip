@@ -60,7 +60,7 @@ class FunModule(niobot.Module):
                 parsed: niobot.MatrixRoom = await niobot.RoomParser.parse(ctx, None, target)
             except niobot.CommandParserError:
                 try:
-                    parsed: niobot.MatrixUser = await niobot.parsers.MatrixUserParser.parse(ctx, None, target)
+                    parsed: niobot.MatrixUser = niobot.parsers.MatrixUserParser.parse(ctx, None, target)
                 except niobot.CommandParserError:
                     await ctx.respond("Unknown room or user ID.")
                     return
