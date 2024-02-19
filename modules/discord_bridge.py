@@ -666,7 +666,7 @@ class DiscordBridge(niobot.Module):
                 original_event_id = message.source["content"]["m.relates_to"]["event_id"]
                 if original_event_id in self.edits:
                     await client.patch(
-                        self.webhook_url + "messages/" + str(self.edits[original_event_id]),
+                        self.webhook_url + "/messages/" + str(self.edits[original_event_id]),
                         json={
                             "content": new_content
                         }
