@@ -202,7 +202,7 @@ class DiscordBridge(niobot.Module):
             if response.status_code == 200:
                 data = response.json()
                 user_data = data.get("user", data)
-                display_name = data.get("nick", user_data["username"])
+                display_name = data.get("nick") or user_data["username"]
                 self.log.debug("Found user %r, caching.", display_name)
                 avatar = None
                 if data.get("avatar"):
@@ -620,6 +620,20 @@ class DiscordBridge(niobot.Module):
             return await self.real_on_message(room, message)
         except Exception as e:
             self.log.error("Error in on_message: %s", e, exc_info=True)
+    
+    # async def on_redaction(self, redaction: nio.RedactionEvent):
+    #     try:
+    #         return await self.real_on_redaction(redaction)
+    #     except Exception as e:
+    #         self.log.error("Error in on_redaction: %s", e, exc_info=True)
+    
+    # async def real_on_redaction(self, redaction: nio.RedactionEvent):
+    #     if redaction.redacts in self.edits:
+    #         if redaction.reason:
+    #             await DiscordAPI(self.token).edit_webhook_message(
+    #                 self.edits[redaction.redacts],
+    #                 ""
+    #             )
 
     async def real_on_message(self, room: nio.MatrixRoom, message: nio.RoomMessageText | nio.RoomMessageMedia):
         if self.bot.is_old(message):
