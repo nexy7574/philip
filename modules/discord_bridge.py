@@ -665,12 +665,19 @@ class DiscordBridge(niobot.Module):
                 new_content = message.source["content"]["m.new_content"]
                 original_event_id = message.source["content"]["m.relates_to"]["event_id"]
                 if original_event_id in self.edits:
-                    await client.patch(
+                    response = await client.patch(
                         self.webhook_url + "/messages/" + str(self.edits[original_event_id]),
                         json={
                             "content": new_content
                         }
                     )
+                    if response.status_code not in range(200, 300):
+                        self.log.warning(
+                            "Failed to edit message %s: %d - %s",
+                            original_event_id,
+                            response.status_code,
+                            response.text
+                        )
                     self.edits[message.event_id] = self.edits[original_event_id]
                     return
                 else:
