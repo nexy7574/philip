@@ -609,8 +609,14 @@ class DiscordBridge(niobot.Module):
                                     reply_to=root.event_id,
                                     message_type=file_attachment.type.value
                                 )
+    
+    async def on_message(self, room, message):
+        try:
+            return await self.real_on_message(room, message)
+        except Exception as e:
+            self.log.error("Error in on_message: %s", e, exc_info=True)
 
-    async def on_message(self, room: nio.MatrixRoom, message: nio.RoomMessageText | nio.RoomMessageMedia):
+    async def real_on_message(self, room: nio.MatrixRoom, message: nio.RoomMessageText | nio.RoomMessageMedia):
         if self.bot.is_old(message):
             return
 
