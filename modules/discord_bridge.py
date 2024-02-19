@@ -663,7 +663,7 @@ class DiscordBridge(niobot.Module):
         async with httpx.AsyncClient() as client:
             if "m.new_content" in message.source["content"]:
                 new_content = message.source["content"]["m.new_content"]
-                original_event_id = new_content["m.relates_to"]["event_id"]
+                original_event_id = new_content["content"]["m.relates_to"]["event_id"]
                 if original_event_id in self.edits:
                     await client.patch(
                         self.webhook_url + "messages/" + str(self.edits[original_event_id]),
@@ -673,6 +673,8 @@ class DiscordBridge(niobot.Module):
                     )
                     self.edits[message.event_id] = self.edits[original_event_id]
                     return
+                else:
+                    self.log.warning("Unrecognised replacement event: %s", original_event_id)
             if self.webhook_url:
                 self.log.debug("Have a registered webhook URL. Using it.")
                 try:
