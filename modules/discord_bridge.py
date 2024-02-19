@@ -205,6 +205,8 @@ class DiscordBridge(niobot.Module):
                 avatar = None
                 if data.get("avatar"):
                     avatar = AVATAR_URL % (user_id, data["avatar"])
+                elif user_data.get("avatar"):
+                    avatar = AVATAR_URL % (user_id, user_data["avatar"])
                 return {
                     "username": display_name,
                     "avatar": avatar,
