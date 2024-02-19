@@ -116,6 +116,8 @@ class DiscordBridge(niobot.Module):
         #     user_id: {"username": "raaa", "avatar": "https://cdn.discordapp.com/...", "expires": 123.45}
         # }
 
+        self.edits = {}
+
     @niobot.event("ready")
     async def on_ready(self, _):
         if self.task is None or self.task.done():
@@ -659,6 +661,18 @@ class DiscordBridge(niobot.Module):
             self.log.debug("No bound discord account for %s", message.sender)
 
         async with httpx.AsyncClient() as client:
+            if "content.m.new_content" in message.source.flattened():
+                new_content = message.source["content"]["m.new_content"]
+                original_event_id = new_content["m.relates_to"]["event_id"]
+                if original_event_id in self.edits:
+                    await client.patch(
+                        self.webhook_url + "messages/" + str(self.edits[original_event_id]),
+                        json={
+                            "content": new_content
+                        }
+                    )
+                    self.edits[message.event_id] = self.edits[original_event_id]
+                    return
             if self.webhook_url:
                 self.log.debug("Have a registered webhook URL. Using it.")
                 try:
@@ -699,6 +713,8 @@ class DiscordBridge(niobot.Module):
                 )
                 if response.status_code in range(200, 300):
                     self.log.debug("Message %s sent to discord bridge via webhook", message.event_id)
+                    if self.config.get("webhook_wait") is True:
+                        self.edits[message.event_id] = response.json()["id"]
                     return
                 else:
                     self.log.warning(
