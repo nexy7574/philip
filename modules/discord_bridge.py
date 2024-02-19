@@ -676,7 +676,7 @@ class DiscordBridge(niobot.Module):
                         response.status_code
                     )
             response = await client.post(
-                self.jimmy_api + "/bridge",
+                self.jimmy_api,
                 json=payload.model_dump()
             )
             if response.status_code == 400:
