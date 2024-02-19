@@ -78,7 +78,10 @@ class DiscordBridge(niobot.Module):
         self.websocket_endpoint = self.config.get("websocket_endpoint")
         if not self.websocket_endpoint:
             self.websocket_endpoint = "wss://droplet.nexy7574.co.uk/jimmy/bridge/recv"
-        self.jimmy_api_domain = urlparse(self.websocket_endpoint).hostname
+        parsed = urlparse(self.websocket_endpoint)
+        self.jimmy_api_domain = parsed.hostname
+        if parsed.port:
+            self.jimmy_api_domain += ":" + str(parsed.port)
         scheme = "https" if urlparse(self.websocket_endpoint).scheme == "wss" else "http"
         self.jimmy_api = scheme + "://" + self.jimmy_api_domain + "/jimmy"
 
