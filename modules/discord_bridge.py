@@ -695,7 +695,7 @@ class DiscordBridge(niobot.Module):
     @niobot.command("bind")
     async def bind(self, ctx: niobot.Context):
         """(discord bridge) Binds your discord account to your matrix account."""
-        existing = await self.get_bound_account(ctx.sender)
+        existing = await self.get_bound_account(ctx.message.sender)
         if existing:
             return await ctx.respond(
                 "\N{cross mark} You have already bound your account to `{}`.\n"
@@ -704,7 +704,7 @@ class DiscordBridge(niobot.Module):
         async with httpx.AsyncClient() as client:
             response = await client.get(
                 self.jimmy_api + "/bridge/bind/new",
-                params={"mx_id": ctx.sender[1:]}
+                params={"mx_id": ctx.message.sender[1:]}
             )
             if response.status_code == 200:
                 data = await response.json()
@@ -714,7 +714,7 @@ class DiscordBridge(niobot.Module):
                     )
                 url = data["url"]
                 await self.bot.send_message(
-                    ctx.sender,
+                    ctx.message.sender,
                     "Please click [here]({}) to bind your discord account.".format(url)
                 )
                 await ctx.respond(
@@ -724,21 +724,21 @@ class DiscordBridge(niobot.Module):
     @niobot.command("unbind")
     async def unbind(self, ctx: niobot.Context):
         """(discord bridge) Unbinds your account."""
-        existing = await self.get_bound_account(ctx.sender)
+        existing = await self.get_bound_account(ctx.message.sender)
         if not existing:
             return await ctx.respond(
                 "\N{cross mark} You have not bound your account to any discord account."
             )
         async with httpx.AsyncClient() as client:
             response = await client.delete(
-                self.jimmy_api + "/bridge/bind/" + ctx.sender[1:]
+                self.jimmy_api + "/bridge/bind/" + ctx.message.sender[1:]
             )
             data = response.json()
             match data.get("status"):
                 case "pending":
                     url = data["url"]
                     await self.bot.send_message(
-                        ctx.sender,
+                        ctx.message.sender,
                         "Please click [here]({}) to unbind your discord account.".format(url)
                     )
                     await ctx.respond(
