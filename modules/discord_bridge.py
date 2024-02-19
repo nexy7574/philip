@@ -704,7 +704,7 @@ class DiscordBridge(niobot.Module):
             )
             if response.status_code == 400:
                 self.log.warning("Message %s was too long to send to discord.", message.event_id)
-                data = await response.json()
+                data = response.json()
                 if data["detail"] == "Message too long.":
                     await self.bot.add_reaction(room, message, "\N{PRINTER}\N{VARIATION SELECTOR-16}")
             elif response.status_code != 201:
@@ -734,7 +734,7 @@ class DiscordBridge(niobot.Module):
                 params={"mx_id": ctx.message.sender[1:]}
             )
             if response.status_code == 200:
-                data = await response.json()
+                data = response.json()
                 if data["status"] != "pending":
                     return await ctx.respond(
                         "\N{cross mark} Failed to bind your account. Please try again later."
