@@ -636,6 +636,7 @@ class DiscordBridge(niobot.Module):
             payload.message = "[{}]({})".format(filename, file_url)
         
         self.log.debug("checking if %s has a discord bound account", message.sender)
+        avatar = None
         bound_account = await self.get_bound_account(message.sender)
         if bound_account:
             self.log.debug("Found bound discord account: %s=%d", message.sender, bound_account)
@@ -644,14 +645,13 @@ class DiscordBridge(niobot.Module):
                 self.log.debug("Got discord user data for %s", message.sender)
                 payload.sender = user_data["username"]
                 if user_data["avatar"]:
-                    payload.avatar = user_data["avatar"]
+                    avatar = user_data["avatar"]
         else:
             self.log.debug("No bound discord account for %s", message.sender)
 
         async with httpx.AsyncClient() as client:
             if self.webhook_url:
                 self.log.debug("Have a registered webhook URL. Using it.")
-                avatar = payload.avatar
                 if not avatar:
                     self.log.debug("Fetching %s avatar from matrix.", message.sender)
                     profile = await self.bot.get_profile(message.sender)
