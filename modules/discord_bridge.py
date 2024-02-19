@@ -161,7 +161,7 @@ class DiscordBridge(niobot.Module):
         img.save(path)
         return path
     
-    async def get_discord_user(self, user_id: int) -> Optional[dict[str, Optional[str, float]]]:
+    async def get_discord_user(self, user_id: int) -> Optional[dict[str, Union[None, str, float]]]:
         """
         Fetches a user from the discord API.
         This function is used to fetch user information for the webhook.
