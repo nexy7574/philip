@@ -80,7 +80,7 @@ class DiscordBridge(niobot.Module):
             self.websocket_endpoint = "wss://droplet.nexy7574.co.uk/jimmy/bridge/recv"
         self.jimmy_api_domain = urlparse(self.websocket_endpoint).hostname
         scheme = "https" if urlparse(self.websocket_endpoint).scheme == "wss" else "http"
-        self.jimmy_api = scheme"://" + self.jimmy_api_domain + "/jimmy"
+        self.jimmy_api = scheme + "://" + self.jimmy_api_domain + "/jimmy"
 
         self.avatar_cache_path = self.config.get("avatar_cache_path")
         if not self.avatar_cache_path:
