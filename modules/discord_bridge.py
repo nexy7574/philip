@@ -107,6 +107,10 @@ class DiscordBridge(niobot.Module):
             self.on_message,
             (nio.RoomMessageText, nio.RoomMessageMedia)
         )
+        self.bot.add_event_callback(
+            self.on_redaction,
+            (nio.RedactionEvent,)
+        )
         self.task: Optional[asyncio.Task] = None
         self.bridge_lock = asyncio.Lock()
 
@@ -614,6 +618,48 @@ class DiscordBridge(niobot.Module):
                                     reply_to=root.event_id,
                                     message_type=file_attachment.type.value
                                 )
+
+    async def edit_webhook_message(
+            self,
+            client: httpx.AsyncClient,
+            new_content: str,
+            *,
+            original_event_id: str,
+            new_event_id: str
+    ):
+        response = await client.patch(
+            self.webhook_url + "/messages/" + str(self.edits[original_event_id]),
+            json={
+                "content": new_content
+            }
+        )
+        if response.status_code not in range(200, 300):
+            self.log.warning(
+                "Failed to edit message %s: %d - %s",
+                original_event_id,
+                response.status_code,
+                response.text
+            )
+        self.edits[new_event_id] = self.edits[original_event_id]
+        return
+
+    async def redact_webhook_message(
+            self,
+            client: httpx.AsyncClient,
+            event_id: str
+    ):
+        """Redacts a discord message"""
+        response = await client.delete(
+            self.webhook_url + "/messages/" + str(self.edits[event_id])
+        )
+        if response.status_code not in range(200, 300):
+            self.log.warning(
+                "Failed to redact message %s: %d - %s",
+                event_id,
+                response.status_code,
+                response.text
+            )
+        del self.edits[event_id]
     
     async def on_message(self, room, message):
         try:
@@ -621,19 +667,26 @@ class DiscordBridge(niobot.Module):
         except Exception as e:
             self.log.error("Error in on_message: %s", e, exc_info=True)
     
-    # async def on_redaction(self, redaction: nio.RedactionEvent):
-    #     try:
-    #         return await self.real_on_redaction(redaction)
-    #     except Exception as e:
-    #         self.log.error("Error in on_redaction: %s", e, exc_info=True)
+    async def on_redaction(self, redaction: nio.RedactionEvent):
+        if self.bot.is_old(redaction):
+            return
+        try:
+            return await self.real_on_redaction(redaction)
+        except Exception as e:
+            self.log.error("Error in on_redaction: %s", e, exc_info=True)
     
-    # async def real_on_redaction(self, redaction: nio.RedactionEvent):
-    #     if redaction.redacts in self.edits:
-    #         if redaction.reason:
-    #             await DiscordAPI(self.token).edit_webhook_message(
-    #                 self.edits[redaction.redacts],
-    #                 ""
-    #             )
+    async def real_on_redaction(self, redaction: nio.RedactionEvent):
+        async with httpx.AsyncClient() as client:
+            if redaction.redacts in self.edits:
+                if redaction.reason:
+                    await self.edit_webhook_message(
+                        client,
+                        f"*Message was redacted: {redaction.reason[:1900]}*",
+                        original_event_id=redaction.redacts,
+                        new_event_id=redaction.event_id
+                    )
+                else:
+                    await self.redact_webhook_message(client, redaction.redacts)
 
     async def real_on_message(self, room: nio.MatrixRoom, message: nio.RoomMessageText | nio.RoomMessageMedia):
         if self.bot.is_old(message):
@@ -679,21 +732,12 @@ class DiscordBridge(niobot.Module):
                 new_content = message.source["content"]["m.new_content"]["body"]
                 original_event_id = message.source["content"]["m.relates_to"]["event_id"]
                 if original_event_id in self.edits:
-                    response = await client.patch(
-                        self.webhook_url + "/messages/" + str(self.edits[original_event_id]),
-                        json={
-                            "content": new_content
-                        }
+                    return await self.edit_webhook_message(
+                        client,
+                        new_content,
+                        original_event_id=original_event_id,
+                        new_event_id=message.event_id
                     )
-                    if response.status_code not in range(200, 300):
-                        self.log.warning(
-                            "Failed to edit message %s: %d - %s",
-                            original_event_id,
-                            response.status_code,
-                            response.text
-                        )
-                    self.edits[message.event_id] = self.edits[original_event_id]
-                    return
                 else:
                     self.log.warning("Unrecognised replacement event: %s", original_event_id)
             if self.webhook_url:
