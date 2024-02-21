@@ -35,6 +35,11 @@ class BridgePayload(pydantic.BaseModel):
     sender: str
 
 
+class FakeMessagePayload(pydantic.BaseModel):
+    author: str
+    at: float
+
+
 class MessagePayload(pydantic.BaseModel):
     class MessageAttachmentPayload(pydantic.BaseModel):
         url: str
@@ -699,6 +704,10 @@ class DiscordBridge(niobot.Module):
                     json=body
                 )
                 if response.status_code in range(200, 300):
+                    self.last_message = FakeMessagePayload(
+                        author=payload.sender,
+                        at=time.time()
+                    )
                     self.log.debug("Message %s sent to discord bridge via webhook", message.event_id)
                     if self.config.get("webhook_wait") is True:
                         self.matrix_to_discord[message.event_id] = response.json()["id"]
