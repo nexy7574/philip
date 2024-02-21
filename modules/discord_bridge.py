@@ -321,6 +321,26 @@ class DiscordBridge(niobot.Module):
             temp_fd.flush()
             return Path(temp_fd.name)
 
+    async def generate_matrix_content(self, payload: MessagePayload):
+        if payload.content:
+            new_content = ""
+            if self.should_prepend_username(payload):
+                avatar = await self.get_image_from_cache(payload.avatar, make_round=True)
+                if avatar:
+                    avatar = '<img src="%s" width="16px" height="16px" alt="[\U0001f464]"> ' % avatar
+                else:
+                    avatar = ""
+                new_content += f"**{avatar}{payload.author}:**\n"
+
+            body = f"**{payload.author}:**\n{payload.clean_content}"
+            pre_rendered = await self.bot._markdown_to_html(payload.clean_content)
+            new_content += "<blockquote>%s</blockquote>" % pre_rendered
+        elif payload.attachments:
+            new_content = body = "@%s sent %d attachments." % (payload.author, len(payload.attachments))
+        else:
+            new_content = body = "@%s sent no content." % payload.author
+        return new_content, body
+
     async def poll_loop(self, client: httpx.AsyncClient):
         if not self.bot.is_ready.is_set():
             await self.bot.is_ready.wait()
@@ -361,18 +381,6 @@ class DiscordBridge(niobot.Module):
                         self.log.debug("Ignoring discord message from webhook or bot.")
                         continue
 
-                    if payload.event_type == "redact":
-                        self.log.debug("Redacting message %r", payload.message_id)
-                        await self.redact_matrix_message(payload.message_id)
-                        continue
-                    elif payload.event_type == "edit":
-                        self.log.debug("Editing message %r", payload.message_id)
-                        await self.edit_matrix_message(payload.message_id, payload.content)
-                        continue
-                    elif payload.event_type != "create":
-                        self.log.warning("Unknown event type: %r", payload.event_type)
-                        continue
-
                     reply_to = None
                     if payload.reply_to:
                         if payload.reply_to in self.discord_to_matrix:
@@ -382,24 +390,27 @@ class DiscordBridge(niobot.Module):
                     else:
                         self.log.debug("Message had no reply.")
 
-                    if payload.content:
-                        new_content = ""
-                        if self.should_prepend_username(payload):
-                            avatar = await self.get_image_from_cache(payload.avatar, make_round=True)
-                            if avatar:
-                                avatar = '<img src="%s" width="16px" height="16px" alt="[\U0001f464]"> ' % avatar
-                            else:
-                                avatar = ""
-                            new_content += f"**{avatar}{payload.author}:**\n"
+                    if payload.event_type == "redact":
+                        self.log.debug("Redacting message %r", payload.message_id)
+                        await self.redact_matrix_message(payload.message_id)
+                        continue
+                    elif payload.event_type == "edit":
+                        self.log.debug("Editing message %r", payload.message_id)
+                        new_content, body = await self.generate_matrix_content(payload)
+                        await self.edit_matrix_message(
+                            payload.message_id,
+                            new_content,
+                            message_type="m.text",
+                            override={
+                                "body": body
+                            }
+                        )
+                        continue
+                    elif payload.event_type != "create":
+                        self.log.warning("Unknown event type: %r", payload.event_type)
+                        continue
 
-                        body = f"**{payload.author}:**\n{payload.clean_content}"
-                        pre_rendered = await self.bot._markdown_to_html(payload.clean_content)
-                        new_content += "<blockquote>%s</blockquote>" % pre_rendered
-                    elif payload.attachments:
-                        new_content = body = "@%s sent %d attachments." % (payload.author, len(payload.attachments))
-                    else:
-                        new_content = body = "@%s sent no content." % payload.author
-
+                    new_content, body = await self.generate_matrix_content(payload)
                     self.log.debug("Rendered content for matrix: %r", new_content)
 
                     self.log.debug("Sending message to %r", room)
@@ -552,14 +563,15 @@ class DiscordBridge(niobot.Module):
             await self.bot.room_redact(self.channel_id, self.discord_to_matrix[message_id])
             del self.discord_to_matrix[message_id]
 
-    async def edit_matrix_message(self, message_id: int, new_content: str):
+    async def edit_matrix_message(self, message_id: int, new_content: str, **kwargs):
         """Edits a matrix message sent from discord to matrix"""
         if message_id in self.discord_to_matrix:
             self.log.debug("Editing matrix message %r", message_id)
             await self.bot.edit_message(
                 self.channel_id,
                 self.discord_to_matrix[message_id],
-                new_content
+                new_content,
+                **kwargs
             )
     
     async def on_message(self, room, message):
