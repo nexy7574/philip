@@ -120,7 +120,8 @@ class DiscordBridge(niobot.Module):
         #     user_id: {"username": "raaa", "avatar": "https://cdn.discordapp.com/...", "expires": 123.45}
         # }
 
-        self.edits = {}
+        self.matrix_to_discord: dict[str, int] = {}
+        self.discord_to_matrix: dict[int, str] = {}
 
     @niobot.event("ready")
     async def on_ready(self, _):
@@ -143,15 +144,6 @@ class DiscordBridge(niobot.Module):
                     mxc_url TEXT,
                     etag TEXT DEFAULT NULL,
                     last_modified TEXT DEFAULT NULL
-                )
-                """
-            )
-            await db.execute(
-                """
-                CREATE TABLE IF NOT EXISTS bridge_messages (
-                    matrix_id TEXT PRIMARY KEY,
-                    discord_id INTEGER,
-                    message_type TEXT
                 )
                 """
             )
@@ -313,120 +305,6 @@ class DiscordBridge(niobot.Module):
                     self.log.error("Error in poll loop: %s", e, exc_info=True)
                     await asyncio.sleep(5)
 
-    async def add_message_to_db(self, matrix_id: str, discord_id: int, message_type: str = "content"):
-        """
-        Adds a message to the database.
-
-        :param matrix_id: The Matrix event ID
-        :param discord_id: The discord message ID
-        :param message_type: The message type (content or attachment)
-        :return:
-        """
-        await self._init_db()
-        async with aiosqlite.connect(self.avatar_cache_path) as db:
-            await db.execute(
-                """
-                INSERT INTO bridge_messages (matrix_id, discord_id, message_type) VALUES (?, ?, ?)
-                """,
-                (matrix_id, discord_id, message_type)
-            )
-            await db.commit()
-
-    async def get_message_from_db(
-            self,
-            matrix_id: str = None,
-            discord_id: int = None,
-    ) -> Optional[dict]:
-        if not any((matrix_id, discord_id)):
-            raise ValueError("Must specify either matrix_id or discord_id")
-        await self._init_db()
-        async with aiosqlite.connect(self.avatar_cache_path) as db:
-            if matrix_id:
-                query = "SELECT matrix_id, discord_id, message_type FROM bridge_messages WHERE matrix_id = ?"
-                args = (matrix_id,)
-            else:
-                query = "SELECT matrix_id, discord_id, message_type FROM bridge_messages WHERE discord_id = ?"
-                args = (discord_id,)
-            async with db.execute(query, args) as cursor:
-                row = await cursor.fetchone()
-                if row:
-                    return {
-                        "matrix_id": row[0],
-                        "discord_id": row[1],
-                        "message_type": row[2]
-                    }
-                else:
-                    return None
-
-    async def delete_message_from_db(
-            self,
-            matrix_id: str = None,
-            discord_id: int = None,
-    ):
-        if not matrix_id and not discord_id:
-            raise ValueError("Must specify either matrix_id or discord_id")
-        await self._init_db()
-        async with aiosqlite.connect(self.avatar_cache_path) as db:
-            if matrix_id:
-                query = "DELETE FROM bridge_messages WHERE matrix_id = ?"
-                args = (matrix_id,)
-            else:
-                query = "DELETE FROM bridge_messages WHERE discord_id = ?"
-                args = (discord_id,)
-            await db.execute(query, args)
-            await db.commit()
-
-    async def download_gif(self, url: str) -> Path:
-        async with httpx.AsyncClient(
-                follow_redirects=True,
-                headers={
-                    # Mask as twitterbot
-                    "User-Agent": "Twitterbot/1.0",
-                    "Finagle-Ctx-Com.twitter.finagle.retries": "0"
-                }
-        ) as client:
-            response = await client.get(url)
-            if response.status_code == 200:
-                soup = BeautifulSoup(response.text, "html.parser")
-                for meta in soup.find_all("meta"):
-                    self.log.debug(meta)
-                    if meta.get("name") == "twitter:image":
-                        image_url = meta.get("content")
-                        break
-                else:
-                    raise RuntimeError("Could not find twitter:image meta tag.")
-
-                if image_url:
-                    self.log.debug("Found GIF URL: %s", image_url)
-                    response = await client.get(image_url)
-                    if response.status_code == 200:
-                        with tempfile.NamedTemporaryFile(
-                                "wb",
-                                suffix=".gif"
-                        ) as temp_file_fd:
-                            temp_file = Path(temp_file_fd.name)
-                            temp_file_fd.write(response.content)
-                            temp_file_fd.flush()
-                            temp_file_fd.seek(0)
-                            with tempfile.NamedTemporaryFile(
-                                "wb",
-                                suffix=".webp"
-                            ) as webp_temp_file_fd:
-                                webp_temp_file = Path(webp_temp_file_fd.name)
-                                await niobot.run_blocking(
-                                    subprocess.run,
-                                    (
-                                        "convert",
-                                        str(temp_file.absolute()),
-                                        str(webp_temp_file.absolute())
-                                    ),
-                                    capture_output=True,
-                                    check=True
-                                )
-                                webp_temp_file_fd.flush()
-                                webp_temp_file_fd.seek(0)
-                                return webp_temp_file
-
     def convert_image(self, path: Path, quality: int = 90, speed: int = 0) -> Path:
         speed = 6 - speed
         with tempfile.NamedTemporaryFile("wb", suffix=path.with_suffix(".webp").name, delete=False) as temp_fd:
@@ -466,7 +344,7 @@ class DiscordBridge(niobot.Module):
                     try:
                         payload_json = json.loads(payload)
                         if payload_json.get("status") == "ping":
-                            self.log.debug("Got PING from bridge, ignoring.")
+                            self.log.debug("Got PING from bridge.")
                             continue
                         payload = MessagePayload(**payload_json)
                     except json.JSONDecodeError as e:
@@ -483,12 +361,24 @@ class DiscordBridge(niobot.Module):
                         self.log.debug("Ignoring discord message from webhook or bot.")
                         continue
 
+                    if payload.event_type == "redact":
+                        self.log.debug("Redacting message %r", payload.message_id)
+                        await self.redact_matrix_message(payload.message_id)
+                        continue
+                    elif payload.event_type == "edit":
+                        self.log.debug("Editing message %r", payload.message_id)
+                        await self.edit_matrix_message(payload.message_id, payload.content)
+                        continue
+                    elif payload.event_type != "create":
+                        self.log.warning("Unknown event type: %r", payload.event_type)
+                        continue
+
                     reply_to = None
                     if payload.reply_to:
-                        if db := await self.get_message_from_db(discord_id=payload.reply_to.message_id):
-                            reply_to = db
+                        if payload.reply_to in self.discord_to_matrix:
+                            reply_to = self.discord_to_matrix[payload.reply_to.message_id]
                         else:
-                            self.log.debug("Could not find message reply.")
+                            self.log.warning("Unknown reply_to: %r", payload.reply_to)
                     else:
                         self.log.debug("Message had no reply.")
 
@@ -525,13 +415,7 @@ class DiscordBridge(niobot.Module):
                                     "body": body
                                 }
                             )
-                            cache = await self.get_message_from_db(discord_id=payload.message_id)
-                            if cache:
-                                await self.delete_message_from_db(discord_id=payload.message_id)
-                            await self.add_message_to_db(
-                                root.event_id,
-                                payload.message_id,
-                            )
+                            self.discord_to_matrix[payload.message_id] = root.event_id
                             self.last_message = payload
                         except niobot.MessageException as e:
                             self.log.error("Failed to send bridge message to matrix: %r", e, exc_info=True)
@@ -628,7 +512,7 @@ class DiscordBridge(niobot.Module):
             new_event_id: str
     ):
         response = await client.patch(
-            self.webhook_url + "/messages/" + str(self.edits[original_event_id]),
+            self.webhook_url + "/messages/" + str(self.matrix_to_discord[original_event_id]),
             json={
                 "content": new_content
             }
@@ -640,7 +524,7 @@ class DiscordBridge(niobot.Module):
                 response.status_code,
                 response.text
             )
-        self.edits[new_event_id] = self.edits[original_event_id]
+        self.matrix_to_discord[new_event_id] = self.matrix_to_discord[original_event_id]
         return
 
     async def redact_webhook_message(
@@ -650,7 +534,7 @@ class DiscordBridge(niobot.Module):
     ):
         """Redacts a discord message"""
         response = await client.delete(
-            self.webhook_url + "/messages/" + str(self.edits[event_id])
+            self.webhook_url + "/messages/" + str(self.matrix_to_discord[event_id])
         )
         if response.status_code not in range(200, 300):
             self.log.warning(
@@ -659,7 +543,24 @@ class DiscordBridge(niobot.Module):
                 response.status_code,
                 response.text
             )
-        del self.edits[event_id]
+        del self.matrix_to_discord[event_id]
+
+    async def redact_matrix_message(self, message_id: int):
+        """Redacts a matrix sent from discord to matrix"""
+        if message_id in self.discord_to_matrix:
+            self.log.debug("Deleting matrix message %r", message_id)
+            await self.bot.room_redact(self.channel_id, self.discord_to_matrix[message_id])
+            del self.discord_to_matrix[message_id]
+
+    async def edit_matrix_message(self, message_id: int, new_content: str):
+        """Edits a matrix message sent from discord to matrix"""
+        if message_id in self.discord_to_matrix:
+            self.log.debug("Editing matrix message %r", message_id)
+            await self.bot.edit_message(
+                self.channel_id,
+                self.discord_to_matrix[message_id],
+                new_content
+            )
     
     async def on_message(self, room, message):
         try:
@@ -678,7 +579,7 @@ class DiscordBridge(niobot.Module):
             self.log.error("Error in on_redaction: %s", e, exc_info=True)
     
     async def real_on_redaction(self, redaction: nio.RedactionEvent):
-        if redaction.redacts in self.edits:
+        if redaction.redacts in self.matrix_to_discord:
             async with httpx.AsyncClient() as client:
                 self.log.debug("Redacting message %s from discord.", redaction.redacts)
                 if redaction.reason:
@@ -738,7 +639,7 @@ class DiscordBridge(niobot.Module):
             if "m.new_content" in message.source["content"]:
                 new_content = message.source["content"]["m.new_content"]["body"]
                 original_event_id = message.source["content"]["m.relates_to"]["event_id"]
-                if original_event_id in self.edits:
+                if original_event_id in self.matrix_to_discord:
                     return await self.edit_webhook_message(
                         client,
                         new_content,
@@ -788,7 +689,7 @@ class DiscordBridge(niobot.Module):
                 if response.status_code in range(200, 300):
                     self.log.debug("Message %s sent to discord bridge via webhook", message.event_id)
                     if self.config.get("webhook_wait") is True:
-                        self.edits[message.event_id] = response.json()["id"]
+                        self.matrix_to_discord[message.event_id] = response.json()["id"]
                     return
                 else:
                     self.log.warning(
