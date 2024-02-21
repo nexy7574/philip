@@ -676,9 +676,11 @@ class DiscordBridge(niobot.Module):
             self.log.error("Error in on_redaction: %s", e, exc_info=True)
     
     async def real_on_redaction(self, redaction: nio.RedactionEvent):
-        async with httpx.AsyncClient() as client:
-            if redaction.redacts in self.edits:
+        if redaction.redacts in self.edits:
+            async with httpx.AsyncClient() as client:
+                self.log.debug("Redacting message %s from discord.", redaction.redacts)
                 if redaction.reason:
+                    self.log.debug("Redacting %s via edit", redaction.redacts)
                     await self.edit_webhook_message(
                         client,
                         f"*Message was redacted: {redaction.reason[:1900]}*",
@@ -686,7 +688,10 @@ class DiscordBridge(niobot.Module):
                         new_event_id=redaction.event_id
                     )
                 else:
+                    self.log.debug("Redacting %s via delete", redaction.redacts)
                     await self.redact_webhook_message(client, redaction.redacts)
+        else:
+            self.log.debug("Ignoring redaction %s", redaction.redacts)
 
     async def real_on_message(self, room: nio.MatrixRoom, message: nio.RoomMessageText | nio.RoomMessageMedia):
         if self.bot.is_old(message):
