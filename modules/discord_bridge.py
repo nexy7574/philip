@@ -286,12 +286,17 @@ class DiscordBridge(niobot.Module):
                         await db.commit()
                         return attachment.url
 
-    def should_prepend_username(self, payload: MessagePayload, comparison: str = None) -> bool:
+    def should_prepend_username(self, payload: MessagePayload) -> bool:
         if self.last_message:
+            self.log.debug("Have last message: %r", self.last_message)
             if payload.at - self.last_message.at < 300:
+                self.log.debug("Last message was within 5 minutes.")
                 if payload.author == self.last_message.author:
+                    self.log.debug("Last message was from the same author.")
                     if payload.content:
+                        self.log.debug("Message has content - should not include author.")
                         return False
+        self.log.debug("For some reason, should include author")
         return True
 
     async def poll_loop_wrapper(self):
@@ -331,7 +336,7 @@ class DiscordBridge(niobot.Module):
         included_author = False
         if payload.content:
             new_content = ""
-            if self.should_prepend_username(payload) or force_author is True:
+            if self.should_prepend_username(payload):
                 included_author = True
                 avatar = await self.get_image_from_cache(payload.avatar, make_round=True)
                 if avatar:
@@ -339,15 +344,18 @@ class DiscordBridge(niobot.Module):
                 else:
                     avatar = ""
                 new_content += f"**{avatar}{payload.author}:**\n"
+                self.log.debug("Prepending username.")
+            else:
+                self.log.debug("Not prepending username.")
 
             body = f"**{payload.author}:**\n{payload.clean_content}"
             new_content = await self.bot._markdown_to_html(new_content + payload.clean_content)
 
             # Now need to replace all instances of ~~$content$~~ with <del>$content$</del>
-            # def convert_tag(_match: typing.Match[str]) -> str:
-            #     return f"<del>{_match.group(3)}</del>"
+            def convert_tag(_match: typing.Match[str]) -> str:
+                return f"<del>{_match.group(3)}</del>"
 
-            # new_content = re.sub(r"(?P<start>((?!\\)~){2})([^~]+)(?P<end>((?!\\)~){2})", convert_tag, new_content)
+            new_content = re.sub(r"(?P<start>((?!\\)~){2})([^~]+)(?P<end>((?!\\)~){2})", convert_tag, new_content)
 
         elif payload.attachments:
             new_content = body = "@%s sent %d attachments." % (payload.author, len(payload.attachments))
