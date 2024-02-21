@@ -327,11 +327,11 @@ class DiscordBridge(niobot.Module):
             temp_fd.flush()
             return Path(temp_fd.name)
 
-    async def generate_matrix_content(self, payload: MessagePayload, force_author: bool = False):
+    async def generate_matrix_content(self, payload: MessagePayload, force_author: bool = None):
         included_author = False
         if payload.content:
             new_content = ""
-            if self.should_prepend_username(payload) or force_author:
+            if self.should_prepend_username(payload) or force_author is True:
                 included_author = True
                 avatar = await self.get_image_from_cache(payload.avatar, make_round=True)
                 if avatar:
@@ -344,10 +344,10 @@ class DiscordBridge(niobot.Module):
             new_content = await self.bot._markdown_to_html(payload.clean_content)
 
             # Now need to replace all instances of ~~$content$~~ with <del>$content$</del>
-            def convert_tag(_match: typing.Match[str]) -> str:
-                return f"<del>{_match.group(3)}</del>"
+            # def convert_tag(_match: typing.Match[str]) -> str:
+            #     return f"<del>{_match.group(3)}</del>"
 
-            new_content = re.sub(r"(?P<start>((?!\\)~){2})([^~]+)(?P<end>((?!\\)~){2})", convert_tag, new_content)
+            # new_content = re.sub(r"(?P<start>((?!\\)~){2})([^~]+)(?P<end>((?!\\)~){2})", convert_tag, new_content)
 
         elif payload.attachments:
             new_content = body = "@%s sent %d attachments." % (payload.author, len(payload.attachments))
