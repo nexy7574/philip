@@ -388,7 +388,7 @@ class DiscordBridge(niobot.Module):
 
                     reply_to = None
                     if payload.reply_to:
-                        if payload.reply_to in self.discord_to_matrix:
+                        if payload.reply_to.message_id in self.discord_to_matrix:
                             reply_to = self.discord_to_matrix[payload.reply_to.message_id]
                         else:
                             self.log.warning("Unknown reply_to: %r", payload.reply_to)
