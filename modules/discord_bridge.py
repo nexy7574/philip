@@ -339,8 +339,7 @@ class DiscordBridge(niobot.Module):
                 else:
                     avatar = ""
                 new_content += f"**{avatar}{payload.author}:**\n"
-            else:
-                new_content += f"**{payload.author}:**\n"
+
             body = f"**{payload.author}:**\n{payload.clean_content}"
             new_content = await self.bot._markdown_to_html(new_content + payload.clean_content)
 
