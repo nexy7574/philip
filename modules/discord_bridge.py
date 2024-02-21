@@ -667,8 +667,10 @@ class DiscordBridge(niobot.Module):
         except Exception as e:
             self.log.error("Error in on_message: %s", e, exc_info=True)
     
-    async def on_redaction(self, redaction: nio.RedactionEvent):
+    async def on_redaction(self, room: nio.MatrixRoom, redaction: nio.RedactionEvent):
         if self.bot.is_old(redaction):
+            return
+        if room.room_id != self.channel_id:
             return
         try:
             return await self.real_on_redaction(redaction)
