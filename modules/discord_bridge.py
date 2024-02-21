@@ -2,6 +2,7 @@ import asyncio
 import io
 import json
 import logging
+import re
 import subprocess
 import tempfile
 import typing
@@ -285,7 +286,7 @@ class DiscordBridge(niobot.Module):
                         await db.commit()
                         return attachment.url
 
-    def should_prepend_username(self, payload: MessagePayload) -> bool:
+    def should_prepend_username(self, payload: MessagePayload, comparison: str = None) -> bool:
         if self.last_message:
             if payload.at - self.last_message.at < 300:
                 if payload.author == self.last_message.author:
@@ -326,10 +327,12 @@ class DiscordBridge(niobot.Module):
             temp_fd.flush()
             return Path(temp_fd.name)
 
-    async def generate_matrix_content(self, payload: MessagePayload):
+    async def generate_matrix_content(self, payload: MessagePayload, force_author: bool = False):
+        included_author = False
         if payload.content:
             new_content = ""
-            if self.should_prepend_username(payload):
+            if self.should_prepend_username(payload) or force_author:
+                included_author = True
                 avatar = await self.get_image_from_cache(payload.avatar, make_round=True)
                 if avatar:
                     avatar = '<img src="%s" width="16px" height="16px" alt="[\U0001f464]"> ' % avatar
@@ -338,13 +341,19 @@ class DiscordBridge(niobot.Module):
                 new_content += f"**{avatar}{payload.author}:**\n"
 
             body = f"**{payload.author}:**\n{payload.clean_content}"
-            pre_rendered = await self.bot._markdown_to_html(payload.clean_content)
-            new_content += "<blockquote>%s</blockquote>" % pre_rendered
+            new_content = await self.bot._markdown_to_html(payload.clean_content)
+
+            # Now need to replace all instances of ~~$content$~~ with <del>$content$</del>
+            def convert_tag(_match: typing.Match[str]) -> str:
+                return f"<del>{_match.group(3)}</del>"
+
+            new_content = re.sub(r"(?P<start>((?!\\)~){2})([^~]+)(?P<end>((?!\\)~){2})", convert_tag, new_content)
+
         elif payload.attachments:
             new_content = body = "@%s sent %d attachments." % (payload.author, len(payload.attachments))
         else:
             new_content = body = "@%s sent no content." % payload.author
-        return new_content, body
+        return new_content, body, included_author
 
     async def poll_loop(self, client: httpx.AsyncClient):
         if not self.bot.is_ready.is_set():
@@ -401,13 +410,27 @@ class DiscordBridge(niobot.Module):
                         continue
                     elif payload.event_type == "edit":
                         self.log.debug("Editing message %r", payload.message_id)
-                        new_content, body = await self.generate_matrix_content(payload)
+                        included_author = False
+                        original_event = await self.bot.room_get_event(
+                            self.channel_id,
+                            self.discord_to_matrix[payload.message_id]
+                        )
+                        if isinstance(original_event, nio.RoomGetEventResponse):
+                            original_event = original_event.event
+                            source = original_event.source
+                            if "nexus.i-am.bridge.author" in source:
+                                included_author = source["nexus.i-am.bridge.author"] == "true"
+                        new_content, body, included_author = await self.generate_matrix_content(
+                            payload,
+                            included_author
+                        )
                         await self.edit_matrix_message(
                             payload.message_id,
                             new_content,
                             message_type="m.text",
                             override={
-                                "body": body
+                                "body": body,
+                                "nexus.i-am.bridge.author": "true" if included_author else "false"
                             }
                         )
                         continue
@@ -415,7 +438,7 @@ class DiscordBridge(niobot.Module):
                         self.log.warning("Unknown event type: %r", payload.event_type)
                         continue
 
-                    new_content, body = await self.generate_matrix_content(payload)
+                    new_content, body, included_author = await self.generate_matrix_content(payload)
                     self.log.debug("Rendered content for matrix: %r", new_content)
 
                     self.log.debug("Sending message to %r", room)
@@ -428,7 +451,8 @@ class DiscordBridge(niobot.Module):
                                 message_type="m.text",
                                 clean_mentions=False,
                                 override={
-                                    "body": body
+                                    "body": body,
+                                    "nexus.i-am.bridge.author": "true" if included_author else "false"
                                 }
                             )
                             self.discord_to_matrix[payload.message_id] = root.event_id
