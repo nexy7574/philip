@@ -96,7 +96,7 @@ class DiscordAPI:
         self.base_url = f"https://discord.com/api/v{version}"
         self.token = config["philip"].get("bridge", {}).get("token")
     
-    def session(self, base_url: str | ... | None = ..., include_token: bool = False) -> httpx.AsyncClient:
+    def session(self, base_url: str | None = ..., include_token: bool = False) -> httpx.AsyncClient:
         if base_url is ...:
             base_url = self.base_url
         headers = {
