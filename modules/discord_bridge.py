@@ -651,7 +651,8 @@ class DiscordBridge(niobot.Module):
         payload = BridgePayload(
             secret=self.token,
             message=message.body,
-            sender=message.sender
+            sender=message.sender,
+            room=room.room_id
         )
         if isinstance(message, nio.RoomMessageMedia):
             filename = message.body
