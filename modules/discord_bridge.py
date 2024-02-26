@@ -124,6 +124,10 @@ class DiscordBridge(niobot.Module):
     def websocket_endpoint(self) -> str:
         return self.jimmy.websocket_endpoint
 
+    @property
+    def webhook_url(self) -> str | None:
+        return self.jimmy.config.get("webhook_url")
+
     @niobot.event("ready")
     async def on_ready(self, _):
         if self.task is None or self.task.done():
