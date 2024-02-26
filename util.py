@@ -58,7 +58,7 @@ class JimmyAPI:
         async with self.session() as client:
             if user_id.startswith("@"):
                 user_id = user_id[1:]
-            response = await client.get("/bridge/bind", parameters={"mx_id": user_id})
+            response = await client.get("/bridge/bind", query={"mx_id": user_id})
             response.raise_for_status()
             return response.json()
     
@@ -69,7 +69,7 @@ class JimmyAPI:
         async with self.session() as client:
             if user_id.startswith("@"):
                 user_id = user_id[1:]
-            response = await client.get("/bridge/bind", parameters={"mx_id": user_id})
+            response = await client.get("/bridge/bind", params={"mx_id": user_id})
             if response.status_code == 404:
                 return
             response.raise_for_status()
@@ -82,7 +82,7 @@ class JimmyAPI:
         async with self.session() as client:
             if user_id.startswith("@"):
                 user_id = user_id[1:]
-            response = await client.delete("/bridge/bind", parameters={"mx_id": user_id})
+            response = await client.delete("/bridge/bind", params={"mx_id": user_id})
             response.raise_for_status()
     
     async def proxy_message(self, payload: "BridgePayload") -> dict[str, str | list[str]]:
@@ -212,7 +212,7 @@ class DiscordAPI:
         image_format: Literal["jpeg", "png", "webp", "gif"] = "webp",
         size: int = 1024
     ) -> str:
-        """Returns the avatar URL for the discord user with the given parameters"""
+        """Returns the avatar URL for the discord user with the given params"""
         if image_format == "gif" and not avatar_hash.startswith("a_"):
             image_format = "webp"
         
