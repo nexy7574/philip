@@ -222,7 +222,9 @@ class DiscordBridge(niobot.Module):
         if sender.startswith("@"):
             sender = sender[1:]
         
-        return (await self.jimmy.get_bridge_bind(sender))["discord"]
+        bind = await self.jimmy.get_bridge_bind(sender)
+        if bind:
+            return bind["discord"]
 
     async def get_image_from_cache(
             self,
