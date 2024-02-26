@@ -120,6 +120,10 @@ class DiscordBridge(niobot.Module):
     def guild_id(self) -> int:
         return self.jimmy.guild_id
 
+    @property
+    def websocket_endpoint(self) -> str:
+        return self.jimmy.websocket_endpoint
+
     @niobot.event("ready")
     async def on_ready(self, _):
         if self.task is None or self.task.done():
