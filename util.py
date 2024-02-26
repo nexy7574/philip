@@ -106,11 +106,10 @@ class DiscordAPI:
         }
         if include_token:
             headers["Authorization"] = f"Bot {self.token}"
-        return httpx.AsyncClient(
-            base_url=base_url,
-            headers=headers,
-            timeout=30
-        )
+        kwargs = dict(headers=headers, timeout=30)
+        if base_url:
+            kwargs["base_url"] = base_url
+        return httpx.AsyncClient(**kwargs)
 
     async def send_webhook(
             self,
