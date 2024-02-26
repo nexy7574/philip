@@ -69,7 +69,7 @@ class JimmyAPI:
         async with self.session() as client:
             if user_id.startswith("@"):
                 user_id = user_id[1:]
-            response = await client.get("/bridge/bind", params={"mx_id": user_id})
+            response = await client.get("/bridge/bind/" + user_id)
             if response.status_code == 404:
                 return
             response.raise_for_status()
@@ -82,7 +82,7 @@ class JimmyAPI:
         async with self.session() as client:
             if user_id.startswith("@"):
                 user_id = user_id[1:]
-            response = await client.delete("/bridge/bind", params={"mx_id": user_id})
+            response = await client.delete("/bridge/bind/" + user_id)
             response.raise_for_status()
     
     async def proxy_message(self, payload: "BridgePayload") -> dict[str, str | list[str]]:
