@@ -3,11 +3,9 @@ import io
 import json
 import logging
 import re
-import subprocess
 import tempfile
 import typing
 from pathlib import Path
-from urllib.parse import urlparse
 
 import PIL.features
 import PIL.Image
@@ -19,9 +17,8 @@ import niobot
 import websockets.client
 import httpx
 import aiosqlite
-from bs4 import BeautifulSoup
 
-from util import config
+from util import config, DiscordAPI, JimmyAPI
 from typing import Optional, Union
 
 
@@ -75,23 +72,8 @@ class DiscordBridge(niobot.Module):
         self.config = config["philip"].get("bridge", {})
         assert isinstance(self.config, dict), "Invalid bridge config. Must be a dict"
 
-        self.token = self.config.get("token", None)
-        assert self.token, "No token set for bridge - unable to proceed."
-        self.guild_id = self.config.get("guild_id", None)
-        self.channel_id = self.config.get("channel_id", "!WrLNqENUnEZvLJiHsu:nexy7574.co.uk")
-        self.webhook_url = self.config.get("webhook_url", None)
-        if not self.webhook_url:
-            self.log.warning("No webhook URL set for bridge - the other end will be ugly.")
-
-        self.websocket_endpoint = self.config.get("websocket_endpoint")
-        if not self.websocket_endpoint:
-            self.websocket_endpoint = "wss://droplet.nexy7574.co.uk/jimmy/bridge/recv"
-        self.bridge_endpoint = self.config.get("bridge_endpoint")
-        if not self.bridge_endpoint:
-            self.bridge_endpoint = "https://droplet.nexy7574.co.uk/jimmy/bridge"
-        parsed = urlparse(self.bridge_endpoint)
-        self.jimmy_api_domain = parsed.hostname
-        self.jimmy_api = self.bridge_endpoint
+        self.jimmy: JimmyAPI = JimmyAPI()
+        self.discord: DiscordAPI = DiscordAPI()
 
         self.avatar_cache_path = self.config.get("avatar_cache_path")
         if not self.avatar_cache_path:
@@ -122,13 +104,13 @@ class DiscordBridge(niobot.Module):
         self.bridge_lock = asyncio.Lock()
 
         self.bind_cache = {}
-        # For the webhook.
-        # {
-        #     user_id: {"username": "raaa", "avatar": "https://cdn.discordapp.com/...", "expires": 123.45}
-        # }
 
         self.matrix_to_discord: dict[str, int] = {}
         self.discord_to_matrix: dict[int, str] = {}
+    
+    @property
+    def token(self) -> str | None:
+        return self.jimmy.token
 
     @niobot.event("ready")
     async def on_ready(self, _):
@@ -192,10 +174,10 @@ class DiscordBridge(niobot.Module):
             self.log.debug("No cached user info for %d", user_id)
         AVATAR_URL = "https://cdn.discordapp.com/avatars/%d/%s.webp?size=256"
         if self.guild_id:
-            url = "https://discord.com/api/v10/guilds/%d/members/%d" % (self.guild_id, user_id)
+            url = "/guilds/%d/members/%d" % (self.guild_id, user_id)
         else:
-            url = "https://discord.com/api/v10/users/%d" % user_id
-        async with httpx.AsyncClient() as client:
+            url = "/users/%d" % user_id
+        async with self.discord.session(include_token=True) as client:
             response = await client.get(
                 url,
                 headers={
@@ -228,11 +210,7 @@ class DiscordBridge(niobot.Module):
         if sender.startswith("@"):
             sender = sender[1:]
         
-        async with httpx.AsyncClient() as client:
-            response = await client.get(self.jimmy_api + "/bind/" + sender)
-            if response.status_code == 200:
-                return response.json()["discord"]
-            self.log.debug("No bound account for %s", sender)
+        return (await self.jimmy.get_bridge_bind(sender))["discord"]
 
     async def get_image_from_cache(
             self,
@@ -301,7 +279,7 @@ class DiscordBridge(niobot.Module):
         return True
 
     async def poll_loop_wrapper(self):
-        async with httpx.AsyncClient() as client:
+        async with self.jimmy.session() as client:
             while True:
                 try:
                     _exit = await self.poll_loop(client)
@@ -374,11 +352,8 @@ class DiscordBridge(niobot.Module):
 
         while True:
             async for ws in websockets.client.connect(
-                self.websocket_endpoint,
+                self.websocket_endpoint + "?secret=" + self.jimmy.token,
                 logger=self.log,
-                extra_headers={
-                    "secret": self.token,
-                },
                 user_agent_header="%s Philip" % niobot.__user_agent__,
             ):
                 self.log.info("Connected to jimmy bridge.")
@@ -685,7 +660,7 @@ class DiscordBridge(niobot.Module):
         else:
             self.log.debug("No bound discord account for %s", message.sender)
 
-        async with httpx.AsyncClient() as client:
+        async with self.discord.session(None, True) as client:
             if "m.new_content" in message.source["content"]:
                 new_content = message.source["content"]["m.new_content"]["body"]
                 original_event_id = message.source["content"]["m.relates_to"]["event_id"]

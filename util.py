@@ -3,6 +3,7 @@ import toml
 from importlib.metadata import version
 import httpx
 import typing
+from typing import Literal
 
 if typing.TYPE_CHECKING:
     from modules.discord_bridge import BridgePayload
@@ -10,7 +11,7 @@ if typing.TYPE_CHECKING:
 CONFIG_PATH = Path(__file__).parent / "config.toml"
 config = toml.load(CONFIG_PATH)
 config.setdefault("philip", {})
-USER_AGENT = "User-Agent": "Philip/1.0 (httpx/{}; nio-bot/{}, +https://github.com/nexy7574/philip)".format(
+USER_AGENT = "Philip/1.0 (httpx/{}; nio-bot/{}, +https://github.com/nexy7574/philip)".format(
     version("httpx"), version("nio-bot")
 )
 USER_AGENT_MOZILLA = "Mozilla/5.0 (%s)" % USER_AGENT
@@ -206,7 +207,7 @@ class DiscordAPI:
         self,
         user_id: int,
         avatar_hash: str,
-        image_format: Literal["jpeg", "png", "webp", "gif"] = "webp", 
+        image_format: Literal["jpeg", "png", "webp", "gif"] = "webp",
         size: int = 1024
     ) -> str:
         """Returns the avatar URL for the discord user with the given parameters"""
