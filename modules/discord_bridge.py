@@ -34,6 +34,7 @@ class BridgePayload(pydantic.BaseModel):
     secret: str
     message: str
     sender: str
+    room: str
 
 
 class FakeMessagePayload(pydantic.BaseModel):
