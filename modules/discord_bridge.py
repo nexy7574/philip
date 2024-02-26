@@ -112,6 +112,14 @@ class DiscordBridge(niobot.Module):
     def token(self) -> str | None:
         return self.jimmy.token
 
+    @property
+    def channel_id(self) -> int:
+        return self.jimmy.default_channel_id
+
+    @property
+    def guild_id(self) -> int:
+        return self.jimmy.guild_id
+
     @niobot.event("ready")
     async def on_ready(self, _):
         if self.task is None or self.task.done():

@@ -24,7 +24,9 @@ class JimmyAPI:
         
         self.config = _config
         self.websocket_endpoint = self.config.get("websocket_endpoint")
-        self.http_base = self.config.get("http_endpoint", "https://nexy7574.co.uk/jimmy/v1")
+        self.http_base = self.config.get("bridge_endpoint", "https://nexy7574.co.uk/jimmy/v1")
+        if self.http_base.endswith("/bridge"):
+            self.http_base = self.http_base[:-7]
         self.token = self.config.get("token")
 
         self.guild_id = self.config.get("guild_id")
