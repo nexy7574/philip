@@ -24,7 +24,9 @@ class KumaThread(KillableThread):
         self.retries = 0
     
     def calculate_backoff(self) -> float:
-        t = (2 * 2 ** self.retries) + random.uniform(0, 1)
+        rnd = random.uniform(0, 1)
+        t = (2 * 2 ** self.retries) + rnd
+        self.log.debug("Backoff: 2 * (2 ** %d) + %f = %f", self.retries, rnd, t)
         # T can never exceed self.interval
         return min(0, max(self.interval, t))
     
