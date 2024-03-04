@@ -35,12 +35,14 @@ class KumaThread(KillableThread):
                 try:
                     self.retries += 1
                     response = client.get(self.url)
+                    response.raise_for_status(())
                 except httpx.HTTPError as error:
                     self.log.error("Failed to connect to uptime-kuma: %r: %r", self.url, error, exc_info=error)
-                    time.sleep(self.calculate_backoff())
+                    timeout = self.calculate_backoff()
+                    self.log.warning("Waiting %d seconds before retrying ping.", timeout)
+                    time.sleep(timeout)
                     continue
-                if response.status_code != 200:
-                    self.log.error("Failed to ping %r: %r; %r", response.url, response, response.text or '-')
+
                 self.retries = 0
                 end_time = time.time()
                 timeout = self.interval - (end_time - start_time)
