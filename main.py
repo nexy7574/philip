@@ -86,7 +86,7 @@ else:
     t = KillableThread(target=lambda: None)
     log.info("Started dummy status thread")
 t.start()
-log.infO("Loading modules")
+log.info("Loading modules")
 modules = [
     ["modules.discord_bridge", False],
     ["modules.fun", True],
