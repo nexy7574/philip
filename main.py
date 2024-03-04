@@ -35,7 +35,7 @@ class KumaThread(KillableThread):
                 try:
                     self.retries += 1
                     response = client.get(self.url)
-                    response.raise_for_status(())
+                    response.raise_for_status()
                 except httpx.HTTPError as error:
                     self.log.error("Failed to connect to uptime-kuma: %r: %r", self.url, error, exc_info=error)
                     timeout = self.calculate_backoff()
