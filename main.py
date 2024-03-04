@@ -1,10 +1,35 @@
-import traceback
-import typing
-
-import nio
+from threading import Thread, Event
 import niobot
+import time
+import httpx
 import logging
 from util import config
+
+
+class KillableThread(Thread):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.kill = Event()
+
+
+class KumaThread(KillableThread):
+    def __init__(self, url: str, interval: float = 60.0):
+        super().__init__(target=self.run, args=(url, interval))
+        self.daemon = True
+        self.log = logging.getLogger("philip.status")
+        self.kill = Event()
+    
+    def run(self, url: str, interval: float) -> None:
+        with httpx.Client(http2=True) as client:
+            while not self.kill.is_set():
+                start_time = time.time()
+                response = client.get(url)
+                if response.status_code != 200:
+                    self.log.error("Failed to ping %r: %r; %r", url, response, response.text or '-')
+                end_time = time.time()
+                timeout = interval - (end_time - start_time)
+                self.kill.wait(timeout)
+
 
 log = logging.getLogger("philip.runtime")
 PHILIP_CONF = config["philip"]
@@ -54,15 +79,35 @@ bot = niobot.NioBot(
     owner_id=PHILIP_CONF.get("owner_id", "@nex:nexy7574.co.uk")
 )
 log.info("Philip starting.")
-try:
-    bot.mount_module("modules.discord_bridge")
-except AssertionError as e:
-    log.warning("Failed to load discord bridge: %s", e, exc_info=True)
-bot.mount_module("modules.fun")
-bot.mount_module("modules.user_eval")
-bot.mount_module("modules.pypi_releases")
-bot.mount_module("modules.ytdl")
-bot.mount_module("modules.support")
+if PHILIP_CONF.get("uptime_kuma_url"):
+    t = KumaThread(PHILIP_CONF["uptime_kuma_url"])
+    log.info("Started UptimeKuma thread")
+else:
+    t = KillableThread(target=lambda: None)
+    log.info("Started dummy status thread")
+t.start()
+log.infO("Loading modules")
+modules = [
+    ["modules.discord_bridge", False],
+    ["modules.fun", True],
+    ["modules.user_eval", True],
+    ["modules.pypi_releases", True],
+    ["modules.ytdl", True],
+    ["modules.support", True]
+]
+for module_location, mandatory in modules:
+    try:
+        perf_start = time.perf_counter()
+        bot.mount_module(module_location)
+        perf_end = time.perf_counter()
+    except (Exception, AssertionError) as e:
+        if mandatory:
+            log.critical("Failed to load %r: %s", module_location, e, exc_info=True)
+            raise
+        else:
+            log.warning("Failed to load module %r: %s", module_location, e, exc_info=True)
+    else:
+        log.info("Loaded %r in %.2fms successfully.", module_location, (perf_end - perf_start) * 1000)
 
 
 @bot.on_event("ready")
