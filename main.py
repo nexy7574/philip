@@ -25,10 +25,11 @@ class KumaThread(KillableThread):
     
     def calculate_backoff(self) -> float:
         rnd = random.uniform(0, 1)
-        t = (2 * 2 ** self.retries) + rnd
-        self.log.debug("Backoff: 2 * (2 ** %d) + %f = %f", self.retries, rnd, t)
+        retries = min(self.retries, 1000)
+        t = (2 * 2 ** retries) + rnd
+        self.log.debug("Backoff: 2 * (2 ** %d) + %f = %f", retries, rnd, t)
         # T can never exceed self.interval
-        return min(0, max(self.interval, t))
+        return max(0, min(self.interval, t))
     
     def run(self) -> None:
         with httpx.Client(http2=True) as client:
