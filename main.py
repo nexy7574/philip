@@ -80,7 +80,7 @@ bot = niobot.NioBot(
 )
 log.info("Philip starting.")
 if PHILIP_CONF.get("uptime_kuma_url"):
-    t = KumaThread(PHILIP_CONF["uptime_kuma_url"])
+    t = KumaThread(PHILIP_CONF["uptime_kuma_url"], PHILIP_CONF.get("uptime_kuma_interval", 60.0))
     log.info("Started UptimeKuma thread")
 else:
     t = KillableThread(target=lambda: None)
