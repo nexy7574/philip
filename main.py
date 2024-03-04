@@ -1,5 +1,6 @@
 from threading import Thread, Event
 import niobot
+import random
 import time
 import httpx
 import logging
@@ -14,20 +15,35 @@ class KillableThread(Thread):
 
 class KumaThread(KillableThread):
     def __init__(self, url: str, interval: float = 60.0):
-        super().__init__(target=self.run, args=(url, interval))
+        super().__init__(target=self.run)
         self.daemon = True
         self.log = logging.getLogger("philip.status")
+        self.url = url
+        self.interval = interval
         self.kill = Event()
+        self.retries = 0
     
-    def run(self, url: str, interval: float) -> None:
+    def calculate_backoff(self) -> float:
+        t = (2 * 2 ** self.retries) + random.uniform(0, 1)
+        # T can never exceed self.interval
+        return min(0, max(self.interval, t))
+    
+    def run(self) -> None:
         with httpx.Client(http2=True) as client:
             while not self.kill.is_set():
                 start_time = time.time()
-                response = client.get(url)
+                try:
+                    self.retries += 1
+                    response = client.get(self.url)
+                except httpx.HTTPError as error:
+                    self.log.error("Failed to connect to uptime-kuma: %r: %r", self.url, error, exc_info=error)
+                    time.sleep(self.calculate_backoff())
+                    continue
                 if response.status_code != 200:
-                    self.log.error("Failed to ping %r: %r; %r", url, response, response.text or '-')
+                    self.log.error("Failed to ping %r: %r; %r", response.url, response, response.text or '-')
+                self.retries = 0
                 end_time = time.time()
-                timeout = interval - (end_time - start_time)
+                timeout = self.interval - (end_time - start_time)
                 self.kill.wait(timeout)
 
 
