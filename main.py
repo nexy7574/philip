@@ -22,15 +22,15 @@ class KumaThread(KillableThread):
         self.interval = interval
         self.kill = Event()
         self.retries = 0
-    
+
     def calculate_backoff(self) -> float:
         rnd = random.uniform(0, 1)
         retries = min(self.retries, 1000)
-        t = (2 * 2 ** retries) + rnd
+        t = (2 * 2**retries) + rnd
         self.log.debug("Backoff: 2 * (2 ** %d) + %f = %f", retries, rnd, t)
         # T can never exceed self.interval
         return max(0, min(self.interval, t))
-    
+
     def run(self) -> None:
         with httpx.Client(http2=True) as client:
             while not self.kill.is_set():
@@ -70,11 +70,7 @@ if "logging" in PHILIP_CONF:
         mirror_to_stdout = False
 
     logging.basicConfig(
-        filename=log_file,
-        filemode=log_mode,
-        level=log_level,
-        format=log_format,
-        datefmt=log_date_format
+        filename=log_file, filemode=log_mode, level=log_level, format=log_format, datefmt=log_date_format
     )
     if mirror_to_stdout:
         console = logging.StreamHandler()
@@ -97,7 +93,7 @@ bot = niobot.NioBot(
     PHILIP_CONF.get("device_id", "dev"),
     PHILIP_CONF.get("store_path", "./keystore"),
     command_prefix=PHILIP_CONF.get("command_prefix", "!"),
-    owner_id=PHILIP_CONF.get("owner_id", "@nex:nexy7574.co.uk")
+    owner_id=PHILIP_CONF.get("owner_id", "@nex:nexy7574.co.uk"),
 )
 log.info("Philip starting.")
 if PHILIP_CONF.get("uptime_kuma_url"):
@@ -114,7 +110,7 @@ modules = [
     ["modules.user_eval", True],
     ["modules.pypi_releases", True],
     ["modules.ytdl", True],
-    ["modules.support", True]
+    ["modules.support", True],
 ]
 for module_location, mandatory in modules:
     try:

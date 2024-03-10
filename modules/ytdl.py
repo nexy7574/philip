@@ -23,13 +23,10 @@ YTDL_ARGS: typing.Dict[str, typing.Any] = {
     "ignoreerrors": True,
     "no_warnings": True,
     "quiet": True,
-    'noprogress': True,
+    "noprogress": True,
     "nooverwrites": True,
-    'format': "(bv+ba/b)[filesize<=90M]/b",
-    "format_sort": [
-        "codec",
-        "ext"
-    ]
+    "format": "(bv+ba/b)[filesize<=90M]/b",
+    "format_sort": ["codec", "ext"],
 }
 
 
@@ -88,9 +85,7 @@ class YoutubeDownloadModule(niobot.Module):
 
         with YoutubeDL(args) as ytdl_instance:
             self.log.info("Downloading %s with format: %r", url, args["format"])
-            ytdl_instance.download(
-                [url]
-            )
+            ytdl_instance.download([url])
 
         x = list(dl_loc.iterdir())
         return x
@@ -119,11 +114,7 @@ class YoutubeDownloadModule(niobot.Module):
         args = YTDL_ARGS.copy()
         with YoutubeDL(args) as ytdl_instance:
             # noinspection PyTypeChecker
-            info = await asyncio.to_thread(
-                ytdl_instance.extract_info,
-                url,
-                download=False
-            )
+            info = await asyncio.to_thread(ytdl_instance.extract_info, url, download=False)
             info = ytdl_instance.sanitize_info(info, remove_private_keys=secure)
         self.log.debug("ytdl info for %s: %r", url, info)
         return info
@@ -141,6 +132,7 @@ class YoutubeDownloadModule(niobot.Module):
                 thumbs = info["thumbnails"].copy()
                 thumbs.sort(key=lambda x: x.get("preference", 0), reverse=True)
                 if width and height:
+
                     def _val(x):
                         t_w = int(x.get("width", 800))
                         t_h = int(x.get("height", 600))
@@ -148,13 +140,14 @@ class YoutubeDownloadModule(niobot.Module):
                         score_w = abs(t_w - width)
                         # lowest score first
                         return score_h + score_w
+
                     thumbs.sort(key=_val)
                 return thumbs[0]["url"]
 
     @niobot.command(
         "ytdl",
-        help="Downloads a video from YouTube", 
-        aliases=['yt', 'dl', 'yl-dl', 'yt-dlp'], 
+        help="Downloads a video from YouTube",
+        aliases=["yt", "dl", "yl-dl", "yt-dlp"],
         usage="<url> [format]",
     )
     async def ytdl(self, ctx: niobot.Context, url: str, download_format: str = None):
@@ -184,13 +177,7 @@ class YoutubeDownloadModule(niobot.Module):
                     if minutes:
                         eta_text = "%d minutes and %d seconds" % (minutes, seconds)
 
-                    await msg.edit(
-                        "Downloading [%r](%s) (ETA %s)..." % (
-                            info["title"],
-                            info["original_url"],
-                            eta_text
-                        )
-                    )
+                    await msg.edit("Downloading [%r](%s) (ETA %s)..." % (info["title"], info["original_url"], eta_text))
                     self.log.info("Downloading %s to %s", url, temp_dir)
                     files = await niobot.run_blocking(self._download, url, dl_format, temp_dir=temp_dir)
                     self.log.info("Downloaded %d files", len(files))
@@ -206,20 +193,18 @@ class YoutubeDownloadModule(niobot.Module):
                         minutes, seconds = divmod(ETA, 60)
                         seconds = round(seconds)
                         await msg.edit(
-                            "Uploading %s (%dMb, ETA %s)..." % (
+                            "Uploading %s (%dMb, ETA %s)..."
+                            % (
                                 file.name,
                                 size_mb,
-                                "%d minutes and %d seconds" % (minutes, seconds) if minutes else "%d seconds" % seconds
+                                "%d minutes and %d seconds" % (minutes, seconds) if minutes else "%d seconds" % seconds,
                             )
                         )
                         self.log.info("Uploading %s (%dMb)", file.name, size_mb)
                         try:
                             attachment = await self.upload_files(file)
                             await self.client.send_message(
-                                room,
-                                content=file.name,
-                                file=attachment,
-                                reply_to=ctx.message
+                                room, content=file.name, file=attachment, reply_to=ctx.message
                             )
                         except Exception as e:
                             self.log.error("Error: %s", e, exc_info=e)
@@ -275,30 +260,28 @@ class YoutubeDownloadModule(niobot.Module):
             _file.write(response.body)
             _file.flush()
             _file.seek(0)
-            await msg.edit('Processing, please wait.')
+            await msg.edit("Processing, please wait.")
 
             attachment = await niobot.which(_file.name).from_file(_file.name)
             metadata = await niobot.run_blocking(niobot.get_metadata, _file.name)
 
-            duration = getattr(attachment, 'duration', 'N/A')
-            resolution = "{0.width}x{0.height}".format(attachment) if hasattr(attachment, 'width') else 'N/A'
+            duration = getattr(attachment, "duration", "N/A")
+            resolution = "{0.width}x{0.height}".format(attachment) if hasattr(attachment, "width") else "N/A"
 
             lines = [
-                '# Summary',
-                '- **File Type**: %s' % attachment.mime_type,
-                '- **File Size**: {:.1f} MiB ({:,} bytes)'.format(attachment.size_as('mib'), len(response.body)),
-                '- **File Name**: `%s`' % (response.filename or pathlib.Path(_file.name).name),
-                '- **URL**: HTTP: %s | MXC: %s' % (
-                    await self.bot.mxc_to_http(event.url, ctx.message.sender.split(":", 1)[-1]),
-                    event.url
-                ),
+                "# Summary",
+                "- **File Type**: %s" % attachment.mime_type,
+                "- **File Size**: {:.1f} MiB ({:,} bytes)".format(attachment.size_as("mib"), len(response.body)),
+                "- **File Name**: `%s`" % (response.filename or pathlib.Path(_file.name).name),
+                "- **URL**: HTTP: %s | MXC: %s"
+                % (await self.bot.mxc_to_http(event.url, ctx.message.sender.split(":", 1)[-1]), event.url),
                 "",
-                '# Metadata',
-                '- **Duration**: %s seconds' % duration,
-                '- **Resolution**: %s' % resolution,
-                '- **MIME Type**: %s' % attachment.mime_type,
-                '',
-                '# Raw probe info',
-                '```json\n%s\n```' % json.dumps(metadata, indent=4, default=repr)
+                "# Metadata",
+                "- **Duration**: %s seconds" % duration,
+                "- **Resolution**: %s" % resolution,
+                "- **MIME Type**: %s" % attachment.mime_type,
+                "",
+                "# Raw probe info",
+                "```json\n%s\n```" % json.dumps(metadata, indent=4, default=repr),
             ]
             await msg.edit("\n".join(lines))

@@ -5,7 +5,6 @@ import re
 
 
 class FunModule(niobot.Module):
-
     @niobot.command()
     async def ping(self, ctx: niobot.Context):
         """Pings the bot."""
@@ -105,10 +104,6 @@ class FunModule(niobot.Module):
         if not http.startswith("http"):
             http = "http://" + http
         return await ctx.respond(
-            'Avatar for {target}: [`{mxc}`]({http})\n\n'
-            '<img src="{mxc}" width="128px" height="128px" alt="avatar"/>'.format(
-                target=target_id,
-                mxc=url,
-                http=http
-            )
+            "Avatar for {target}: [`{mxc}`]({http})\n\n"
+            '<img src="{mxc}" width="128px" height="128px" alt="avatar"/>'.format(target=target_id, mxc=url, http=http)
         )

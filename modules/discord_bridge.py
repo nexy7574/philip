@@ -87,19 +87,10 @@ class DiscordBridge(niobot.Module):
 
         self.last_message: Optional[MessagePayload] = None
         self.message_cache: list[
-            dict[
-                typing.Literal["discord", "matrix"],
-                MessagePayload | nio.RoomMessage | nio.RoomSendResponse
-            ]
+            dict[typing.Literal["discord", "matrix"], MessagePayload | nio.RoomMessage | nio.RoomSendResponse]
         ] = []
-        self.bot.add_event_callback(
-            self.on_message,
-            (nio.RoomMessageText, nio.RoomMessageMedia)
-        )
-        self.bot.add_event_callback(
-            self.on_redaction,
-            (nio.RedactionEvent,)
-        )
+        self.bot.add_event_callback(self.on_message, (nio.RoomMessageText, nio.RoomMessageMedia))
+        self.bot.add_event_callback(self.on_redaction, (nio.RedactionEvent,))
         self.task: Optional[asyncio.Task] = None
         self.bridge_lock = asyncio.Lock()
 
@@ -107,7 +98,7 @@ class DiscordBridge(niobot.Module):
 
         self.matrix_to_discord: dict[str, int] = {}
         self.discord_to_matrix: dict[int, str] = {}
-    
+
     @property
     def token(self) -> str | None:
         return self.jimmy.token
@@ -168,7 +159,7 @@ class DiscordBridge(niobot.Module):
         img.thumbnail((16, 16), PIL.Image.Resampling.LANCZOS, 3)
         img.save(path)
         return path
-    
+
     async def get_discord_user(self, user_id: int) -> Optional[dict[str, Union[None, str, float]]]:
         """
         Fetches a user from the discord API.
@@ -194,12 +185,7 @@ class DiscordBridge(niobot.Module):
         else:
             url = "/users/%d" % user_id
         async with self.discord.session(include_token=True) as client:
-            response = await client.get(
-                url,
-                headers={
-                    "Authorization": "Bot " + self.token
-                }
-            )
+            response = await client.get(url, headers={"Authorization": "Bot " + self.token})
             if response.status_code == 200:
                 data = response.json()
                 user_data = data.get("user", data)
@@ -210,12 +196,8 @@ class DiscordBridge(niobot.Module):
                     avatar = AVATAR_URL % (user_id, data["avatar"])
                 elif user_data.get("avatar"):
                     avatar = AVATAR_URL % (user_id, user_data["avatar"])
-                return {
-                    "username": display_name,
-                    "avatar": avatar,
-                    "expires": time.time() + 86400
-                }
-    
+                return {"username": display_name, "avatar": avatar, "expires": time.time() + 86400}
+
     async def get_bound_account(self, sender: str) -> Optional[int]:
         """
         Fetches the user's bound discord account ID from the Jimmy v1 API.
@@ -225,17 +207,13 @@ class DiscordBridge(niobot.Module):
         """
         if sender.startswith("@"):
             sender = sender[1:]
-        
+
         bind = await self.jimmy.get_bridge_bind(sender)
         if bind:
             return bind["discord"]
 
     async def get_image_from_cache(
-            self,
-            http: str,
-            *,
-            make_round: bool = False,
-            encrypted: bool = False
+        self, http: str, *, make_round: bool = False, encrypted: bool = False
     ) -> Optional[str]:
         """
         Fetches an image from the cache, or if not found, uploads it and returns the mxc.
@@ -252,7 +230,7 @@ class DiscordBridge(niobot.Module):
                 """
                 SELECT mxc_url FROM image_cache WHERE http_url = ?
                 """,
-                (http,)
+                (http,),
             ) as cursor:
                 row = await cursor.fetchone()
                 self.log.debug("Row: %r", row)
@@ -278,7 +256,7 @@ class DiscordBridge(niobot.Module):
                             """
                             INSERT INTO image_cache (http_url, mxc_url) VALUES (?, ?)
                             """,
-                            (http, attachment.url)
+                            (http, attachment.url),
                         )
                         await db.commit()
                         return attachment.url
@@ -317,11 +295,7 @@ class DiscordBridge(niobot.Module):
         speed = 6 - speed
         with tempfile.NamedTemporaryFile("wb", suffix=path.with_suffix(".webp").name, delete=False) as temp_fd:
             img = PIL.Image.open(path)
-            kwargs = {
-                "format": "webp",
-                "quality": quality,
-                "method": speed
-            }
+            kwargs = {"format": "webp", "quality": quality, "method": speed}
             if getattr(img, "is_animated", False) and PIL.features.check("webp_anim"):
                 kwargs["save_all"] = True
             self.log.info("Converting image %r to webp with kwargs %r", path, kwargs)
@@ -414,8 +388,7 @@ class DiscordBridge(niobot.Module):
                         self.log.debug("Editing message %r", payload.message_id)
                         included_author = False
                         original_event = await self.bot.room_get_event(
-                            self.channel_id,
-                            self.discord_to_matrix[payload.message_id]
+                            self.channel_id, self.discord_to_matrix[payload.message_id]
                         )
                         if isinstance(original_event, nio.RoomGetEventResponse):
                             original_event = original_event.event
@@ -423,17 +396,13 @@ class DiscordBridge(niobot.Module):
                             if "nexus.i-am.bridge.author" in source:
                                 included_author = source["nexus.i-am.bridge.author"] == "true"
                         new_content, body, included_author = await self.generate_matrix_content(
-                            payload,
-                            included_author
+                            payload, included_author
                         )
                         await self.edit_matrix_message(
                             payload.message_id,
                             new_content,
                             message_type="m.text",
-                            override={
-                                "body": body,
-                                "nexus.i-am.bridge.author": "true" if included_author else "false"
-                            }
+                            override={"body": body, "nexus.i-am.bridge.author": "true" if included_author else "false"},
                         )
                         continue
                     elif payload.event_type != "create":
@@ -454,8 +423,8 @@ class DiscordBridge(niobot.Module):
                                 clean_mentions=False,
                                 override={
                                     "body": body,
-                                    "nexus.i-am.bridge.author": "true" if included_author else "false"
-                                }
+                                    "nexus.i-am.bridge.author": "true" if included_author else "false",
+                                },
                             )
                             self.discord_to_matrix[payload.message_id] = root.event_id
                             self.last_message = payload
@@ -495,96 +464,64 @@ class DiscordBridge(niobot.Module):
                                     case niobot.VideoAttachment:
                                         # Do some additional processing.
                                         first_frame_bytes = await niobot.run_blocking(
-                                            niobot.first_frame,
-                                            temp_file,
-                                            "webp"
+                                            niobot.first_frame, temp_file, "webp"
                                         )
                                         first_frame_bio = io.BytesIO(first_frame_bytes)
                                         thumbnail_attachment = await niobot.ImageAttachment.from_file(
                                             first_frame_bio,
                                             attachment.filename + "-thumbnail.webp",
                                             height=attachment.height,
-                                            width=attachment.width
+                                            width=attachment.width,
                                         )
                                         await thumbnail_attachment.upload(self.bot)
                                         file_attachment = await discovered.from_file(
                                             temp_file,
                                             height=attachment.height,
                                             width=attachment.width,
-                                            thumbnail=thumbnail_attachment
+                                            thumbnail=thumbnail_attachment,
                                         )
                                     case niobot.ImageAttachment:
                                         # Convert it to webp.
                                         if attachment.content_type != "image/gif":
                                             new_file = await niobot.run_blocking(
-                                                self.convert_image,
-                                                temp_file,
-                                                speed=0,
-                                                quality=80
+                                                self.convert_image, temp_file, speed=0, quality=80
                                             )
                                         else:
                                             new_file = temp_file
                                         file_attachment = await discovered.from_file(
-                                            new_file,
-                                            height=attachment.height,
-                                            width=attachment.width
+                                            new_file, height=attachment.height, width=attachment.width
                                         )
 
                                     case niobot.AudioAttachment:
-                                        file_attachment = await discovered.from_file(
-                                            temp_file
-                                        )
+                                        file_attachment = await discovered.from_file(temp_file)
                                     case niobot.FileAttachment:
-                                        file_attachment = await discovered.from_file(
-                                            temp_file
-                                        )
+                                        file_attachment = await discovered.from_file(temp_file)
                                 await self.bot.send_message(
                                     room,
                                     file=file_attachment,
                                     reply_to=root.event_id,
-                                    message_type=file_attachment.type.value
+                                    message_type=file_attachment.type.value,
                                 )
 
     async def edit_webhook_message(
-            self,
-            client: httpx.AsyncClient,
-            new_content: str,
-            *,
-            original_event_id: str,
-            new_event_id: str
+        self, client: httpx.AsyncClient, new_content: str, *, original_event_id: str, new_event_id: str
     ):
         response = await client.patch(
             self.webhook_url + "/messages/" + str(self.matrix_to_discord[original_event_id]),
-            json={
-                "content": new_content
-            }
+            json={"content": new_content},
         )
         if response.status_code not in range(200, 300):
             self.log.warning(
-                "Failed to edit message %s: %d - %s",
-                original_event_id,
-                response.status_code,
-                response.text
+                "Failed to edit message %s: %d - %s", original_event_id, response.status_code, response.text
             )
         self.matrix_to_discord[new_event_id] = self.matrix_to_discord[original_event_id]
         return
 
-    async def redact_webhook_message(
-            self,
-            client: httpx.AsyncClient,
-            event_id: str
-    ):
+    async def redact_webhook_message(self, client: httpx.AsyncClient, event_id: str):
         """Redacts a discord message"""
-        response = await client.delete(
-            self.webhook_url + "/messages/" + str(self.matrix_to_discord[event_id])
-        )
+        response = await client.delete(self.webhook_url + "/messages/" + str(self.matrix_to_discord[event_id]))
         if response.status_code not in range(200, 300):
-            self.log.warning(
-                "Failed to redact message %s: %d - %s",
-                event_id,
-                response.status_code,
-                response.text
-            )
+            self.log.warning("Failed to redact message %s: %d - %s", event_id, response.status_code, response.text)
         del self.matrix_to_discord[event_id]
 
     async def redact_matrix_message(self, message_id: int):
@@ -598,19 +535,14 @@ class DiscordBridge(niobot.Module):
         """Edits a matrix message sent from discord to matrix"""
         if message_id in self.discord_to_matrix:
             self.log.debug("Editing matrix message %r", message_id)
-            await self.bot.edit_message(
-                self.channel_id,
-                self.discord_to_matrix[message_id],
-                new_content,
-                **kwargs
-            )
-    
+            await self.bot.edit_message(self.channel_id, self.discord_to_matrix[message_id], new_content, **kwargs)
+
     async def on_message(self, room, message):
         try:
             return await self.real_on_message(room, message)
         except Exception as e:
             self.log.error("Error in on_message: %s", e, exc_info=True)
-    
+
     async def on_redaction(self, room: nio.MatrixRoom, redaction: nio.RedactionEvent):
         if self.bot.is_old(redaction):
             return
@@ -620,7 +552,7 @@ class DiscordBridge(niobot.Module):
             return await self.real_on_redaction(redaction)
         except Exception as e:
             self.log.error("Error in on_redaction: %s", e, exc_info=True)
-    
+
     async def real_on_redaction(self, redaction: nio.RedactionEvent):
         if redaction.redacts in self.matrix_to_discord:
             async with httpx.AsyncClient() as client:
@@ -631,7 +563,7 @@ class DiscordBridge(niobot.Module):
                         client,
                         f"*Message was redacted: {redaction.reason[:1900]}*",
                         original_event_id=redaction.redacts,
-                        new_event_id=redaction.event_id
+                        new_event_id=redaction.event_id,
                     )
                 else:
                     self.log.debug("Redacting %s via delete", redaction.redacts)
@@ -654,17 +586,12 @@ class DiscordBridge(niobot.Module):
 
         self.log.debug("Got matrix message: %r in room %r", message, room)
 
-        payload = BridgePayload(
-            secret=self.token,
-            message=message.body,
-            sender=message.sender,
-            room=room.room_id
-        )
+        payload = BridgePayload(secret=self.token, message=message.body, sender=message.sender, room=room.room_id)
         if isinstance(message, nio.RoomMessageMedia):
             filename = message.body
             file_url = await self.bot.mxc_to_http(message.url)
             payload.message = "[{}]({})".format(filename, file_url)
-        
+
         self.log.debug("checking if %s has a discord bound account", message.sender)
         avatar = None
         bound_account = await self.get_bound_account(message.sender)
@@ -685,10 +612,7 @@ class DiscordBridge(niobot.Module):
                 original_event_id = message.source["content"]["m.relates_to"]["event_id"]
                 if original_event_id in self.matrix_to_discord:
                     return await self.edit_webhook_message(
-                        client,
-                        new_content,
-                        original_event_id=original_event_id,
-                        new_event_id=message.event_id
+                        client, new_content, original_event_id=original_event_id, new_event_id=message.event_id
                     )
                 else:
                     self.log.warning("Unrecognised replacement event: %s", original_event_id)
@@ -714,27 +638,17 @@ class DiscordBridge(niobot.Module):
                 body = {
                     "content": payload.message,
                     "username": payload.sender[:32],
-                    "allowed_mentions": {
-                        "parse": [
-                            "users"
-                        ],
-                        "replied_user": True
-                    }
+                    "allowed_mentions": {"parse": ["users"], "replied_user": True},
                 }
                 if avatar:
                     body["avatar_url"] = avatar
                 self.log.debug("Body: %r", body)
                 self.log.debug("Sending message to discord.")
                 response = await client.post(
-                    self.webhook_url,
-                    params={"wait": self.config.get("webhook_wait", False)},
-                    json=body
+                    self.webhook_url, params={"wait": self.config.get("webhook_wait", False)}, json=body
                 )
                 if response.status_code in range(200, 300):
-                    self.last_message = FakeMessagePayload(
-                        author=payload.sender,
-                        at=time.time()
-                    )
+                    self.last_message = FakeMessagePayload(author=payload.sender, at=time.time())
                     self.log.debug("Message %s sent to discord bridge via webhook", message.event_id)
                     if self.config.get("webhook_wait") is True:
                         self.matrix_to_discord[message.event_id] = response.json()["id"]
@@ -743,13 +657,10 @@ class DiscordBridge(niobot.Module):
                     self.log.warning(
                         "Failed to bridge message %s using webhook (%d). will fall back to websocket.",
                         message.event_id,
-                        response.status_code
+                        response.status_code,
                     )
             self.log.debug("Sending fallback message.")
-            response = await client.post(
-                self.jimmy_api,
-                json=payload.model_dump()
-            )
+            response = await client.post(self.jimmy_api, json=payload.model_dump())
             if response.status_code == 400:
                 self.log.warning("Message %s was too long to send to discord.", message.event_id)
                 data = response.json()
@@ -760,13 +671,13 @@ class DiscordBridge(niobot.Module):
                     "Error while sending message (%s) to discord bridge (%d): %s",
                     message.event_id,
                     response.status_code,
-                    response.text
+                    response.text,
                 )
                 await self.bot.add_reaction(room, message, "\N{CROSS MARK}")
                 return
             else:
                 self.log.debug("Message %s sent to discord bridge", message.event_id)
-    
+
     @niobot.command("bind")
     async def bind(self, ctx: niobot.Context):
         """(discord bridge) Binds your discord account to your matrix account."""
@@ -777,62 +688,39 @@ class DiscordBridge(niobot.Module):
                 "Use `{}unbind` to unbind your account.".format(existing, self.bot.command_prefix),
             )
         async with httpx.AsyncClient() as client:
-            response = await client.get(
-                self.jimmy_api + "/bind/new",
-                params={"mx_id": ctx.message.sender[1:]}
-            )
+            response = await client.get(self.jimmy_api + "/bind/new", params={"mx_id": ctx.message.sender[1:]})
             if response.status_code == 200:
                 data = response.json()
                 if data["status"] != "pending":
-                    return await ctx.respond(
-                        "\N{cross mark} Failed to bind your account. Please try again later."
-                    )
+                    return await ctx.respond("\N{cross mark} Failed to bind your account. Please try again later.")
                 url = data["url"]
                 await self.bot.send_message(
-                    ctx.message.sender,
-                    "Please click [here]({}) to bind your discord account.".format(url)
+                    ctx.message.sender, "Please click [here]({}) to bind your discord account.".format(url)
                 )
-                await ctx.respond(
-                    "\u23F3 I have sent you a link in a direct room."
-                )
+                await ctx.respond("\u23F3 I have sent you a link in a direct room.")
             else:
                 self.log.warning(
-                    "Unexpected status code %d while binding account: %s",
-                    response.status_code,
-                    response.text
+                    "Unexpected status code %d while binding account: %s", response.status_code, response.text
                 )
-                await ctx.respond(
-                    "\N{cross mark} Failed to bind your account. Please try again later."
-                )
-    
+                await ctx.respond("\N{cross mark} Failed to bind your account. Please try again later.")
+
     @niobot.command("unbind")
     async def unbind(self, ctx: niobot.Context):
         """(discord bridge) Unbinds your account."""
         existing = await self.get_bound_account(ctx.message.sender)
         if not existing:
-            return await ctx.respond(
-                "\N{cross mark} You have not bound your account to any discord account."
-            )
+            return await ctx.respond("\N{cross mark} You have not bound your account to any discord account.")
         async with httpx.AsyncClient() as client:
-            response = await client.delete(
-                self.jimmy_api + "/bind/" + ctx.message.sender[1:]
-            )
+            response = await client.delete(self.jimmy_api + "/bind/" + ctx.message.sender[1:])
             data = response.json()
             match data.get("status"):
                 case "pending":
                     url = data["url"]
                     await self.bot.send_message(
-                        ctx.message.sender,
-                        "Please click [here]({}) to unbind your discord account.".format(url)
+                        ctx.message.sender, "Please click [here]({}) to unbind your discord account.".format(url)
                     )
-                    await ctx.respond(
-                        "\u23F3 I have sent you a link in a direct room."
-                    )
+                    await ctx.respond("\u23F3 I have sent you a link in a direct room.")
                 case "ok":
-                    await ctx.respond(
-                        "\N{white heavy check mark} Your account has been unbound."
-                    )
+                    await ctx.respond("\N{white heavy check mark} Your account has been unbound.")
                 case _:
-                    await ctx.respond(
-                        "\N{cross mark} Failed to unbind your account. Please try again later."
-                    )
+                    await ctx.respond("\N{cross mark} Failed to unbind your account. Please try again later.")

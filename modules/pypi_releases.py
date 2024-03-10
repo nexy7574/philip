@@ -32,9 +32,7 @@ class PyPiReleases(niobot.Module):
 
     async def read_rss(self):
         async with httpx.AsyncClient() as client:
-            headers = {
-                "User-Agent": niobot.__user_agent__
-            }
+            headers = {"User-Agent": niobot.__user_agent__}
             if self.last_etag:
                 headers["If-None-Match"] = self.last_etag
             self.log.debug("Requesting RSS @ %s", self.url)

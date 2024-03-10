@@ -34,14 +34,11 @@ class SupportModule(niobot.Module):
                 You can contact my developer, [@nex:nexy7574.co.uk](https://matrix.to/#/@nex:nexy7574.co.uk).
                 *If you don't want me here, you can get an admin or mod to kick me. I won't be offended.*
                 *Powered by [NioBot](https://nio-bot.dev)*
-                """.format(message.sender)
+                """.format(
+                    message.sender
+                )
             )
-            return await self.bot.send_message(
-                room.room_id,
-                t,
-                message_type="m.notice",
-                reply_to=message.event_id
-            )
+            return await self.bot.send_message(room.room_id, t, message_type="m.notice", reply_to=message.event_id)
 
     @niobot.command("python-eol")
     async def python_eol(self, ctx: niobot.Context, no_table: bool = False):
@@ -66,7 +63,7 @@ class SupportModule(niobot.Module):
                 supported_table.prettify(),
                 "",
                 "# EOL Versions",
-                unsupported_table.prettify()
+                unsupported_table.prettify(),
             ]
             return await msg.edit("\n".join(lines))
 
@@ -80,7 +77,7 @@ class SupportModule(niobot.Module):
                     "first_release": datetime.datetime.strptime(first_release.text, "%Y-%m-%d").date(),
                     "eol_date": datetime.datetime.strptime(eol_date.text, "%Y-%m").date(),
                     "release_manager": release_manager.text,
-                    "is_eol": False
+                    "is_eol": False,
                 }
 
             for row in unsupported_table.find_all("tbody")[0].find_all("tr"):
@@ -92,7 +89,7 @@ class SupportModule(niobot.Module):
                     status.text,
                     first_release.text,
                     eol_date.text,
-                    release_manager.text
+                    release_manager.text,
                 )
                 table[branch.text] = {
                     "schedule": schedule.text,
@@ -100,7 +97,7 @@ class SupportModule(niobot.Module):
                     "first_release": datetime.datetime.strptime(first_release.text, "%Y-%m-%d").date(),
                     "eol_date": datetime.datetime.strptime(eol_date.text, "%Y-%m-%d").date(),
                     "release_manager": release_manager.text,
-                    "is_eol": True
+                    "is_eol": True,
                 }
 
             lines = []
@@ -132,9 +129,7 @@ class SupportModule(niobot.Module):
     async def version(self, ctx: niobot.Context):
         """Get the version of Philip"""
         if pathlib.Path(".git").exists():
-            process = await asyncio.create_subprocess_exec(
-                "git", "rev-parse", "HEAD", stdout=asyncio.subprocess.PIPE
-            )
+            process = await asyncio.create_subprocess_exec("git", "rev-parse", "HEAD", stdout=asyncio.subprocess.PIPE)
             stdout, _ = await process.communicate()
             bot_version = stdout.decode().strip()[:7]
             bot_version_url = "https://github.com/nexy7574/philip/commit/%s" % stdout.decode().strip()
@@ -149,12 +144,8 @@ class SupportModule(niobot.Module):
             niobot_version_url = "https://github.com/nexy7574/niobot/tree/%s" % niobot_version.local[1:]
 
         await ctx.respond(
-            "Bot version: [%s](%s)\nNioBot version: [%s](%s)" % (
-                bot_version,
-                bot_version_url,
-                niobot_version,
-                niobot_version_url
-            )
+            "Bot version: [%s](%s)\nNioBot version: [%s](%s)"
+            % (bot_version, bot_version_url, niobot_version, niobot_version_url)
         )
 
     @niobot.command("about", aliases=["info"])

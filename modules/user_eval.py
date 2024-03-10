@@ -26,7 +26,7 @@ class EvalModule(niobot.Module):
         if not bot.owner_id:
             raise RuntimeError("No owner ID set in niobot. Refusing to load for security reasons.")
         super().__init__(bot)
-    
+
     async def owner_check(self, ctx: niobot.Context) -> bool:
         """Checks if the current user is the owner, and if not, gives them a very informative message."""
         if not self.bot.is_owner(ctx.message.sender):
@@ -48,7 +48,7 @@ class EvalModule(niobot.Module):
     @niobot.command("eval")
     async def python_eval(self, ctx: niobot.Context, code: str):
         """Evaluates python code.
-        
+
         All code is automatically wrapped in an async function, so you can do top-level awaits.
         You must return a value for it to be printed, or manually print() it.
 
@@ -79,7 +79,7 @@ class EvalModule(niobot.Module):
             "niobot": niobot,
             "pprint": pprint.pprint,
         }
-        code = code.replace('\u00A0', ' ')  # 00A0 is &nbsp;
+        code = code.replace("\u00A0", " ")  # 00A0 is &nbsp;
         code = textwrap.indent(code, "    ")
         code = f"async def __eval():\n{code}"
         msg = await ctx.respond(f"Evaluating:\n```py\n{code}\n```")
@@ -93,7 +93,9 @@ class EvalModule(niobot.Module):
             end_exec = time.time() * 1000
             total_time = end_exec - start
             time_str = "%.2fms (compile: %.2fms, exec: %.2fms)" % (
-                total_time, end_compile - start, end_exec - end_compile
+                total_time,
+                end_compile - start,
+                end_exec - end_compile,
             )
             lines = ["Time: " + time_str + "\n"]
             if result is not None:
@@ -108,7 +110,7 @@ class EvalModule(niobot.Module):
                     result = repr(result)
                 lines += ["Result:\n", "```", str(result), "```\n"]
             else:
-                lines += ['No result.\n']
+                lines += ["No result.\n"]
             if stdout.getvalue():
                 lines.append("Stdout:\n```\n" + stdout.getvalue() + "```")
             if stderr.getvalue():
@@ -173,13 +175,7 @@ class EvalModule(niobot.Module):
                     niobot.ImageAttachment.thumbnailify_image,
                     data,
                 )
-                thumb.save('file.webp', "webp")
-                attachment = await niobot.ImageAttachment.from_file(
-                    'file.webp',
-                    generate_blurhash=True
-                )
+                thumb.save("file.webp", "webp")
+                attachment = await niobot.ImageAttachment.from_file("file.webp", generate_blurhash=True)
                 self.log.info("Generated thumbnail: %r", attachment)
-                await ctx.respond(
-                    "thumbnail.webp",
-                    file=attachment
-                )
+                await ctx.respond("thumbnail.webp", file=attachment)
