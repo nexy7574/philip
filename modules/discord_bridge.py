@@ -589,11 +589,8 @@ class DiscordBridge(niobot.Module):
 
         payload = BridgePayload(secret=self.token, message=message.body, sender=message.sender, room=room.room_id)
         if isinstance(message, nio.RoomMessageMedia):
-            content_type = message.source["content"].get("info", {}).get("mimetype", "")
             filename = message.body
             file_url = await self.bot.mxc_to_http(message.url)
-            if content_type.startswith("video/"):
-                file_url = "https://embeds.video/" + file_url
             payload.message = "[{}]({})".format(filename, file_url)
 
         self.log.debug("checking if %s has a discord bound account", message.sender)
