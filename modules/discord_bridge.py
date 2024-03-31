@@ -589,7 +589,7 @@ class DiscordBridge(niobot.Module):
 
         payload = BridgePayload(secret=self.token, message=message.body, sender=message.sender, room=room.room_id)
         if isinstance(message, nio.RoomMessageMedia):
-            content_type = message.flattened()["content"].get("info", {}).get("mimetype", "")
+            content_type = message.source["content"].get("info", {}).get("mimetype", "")
             filename = message.body
             file_url = await self.bot.mxc_to_http(message.url)
             if content_type.startswith("video/"):
