@@ -595,7 +595,11 @@ class DiscordBridge(niobot.Module):
 
         self.log.debug("checking if %s has a discord bound account", message.sender)
         avatar = None
-        bound_account = await self.get_bound_account(message.sender)
+        try:
+            bound_account = await self.get_bound_account(message.sender)
+        except httpx.HTTPStatusError as e:
+            self.log.warning("Failed to fetch bound account: %s", e, exc_info=True)
+            bound_account = None
         if bound_account:
             self.log.debug("Found bound discord account: %s=%d", message.sender, bound_account)
             user_data = await self.get_discord_user(bound_account)
@@ -682,7 +686,11 @@ class DiscordBridge(niobot.Module):
     @niobot.command("bind")
     async def bind(self, ctx: niobot.Context):
         """(discord bridge) Binds your discord account to your matrix account."""
-        existing = await self.get_bound_account(ctx.message.sender)
+        try:
+            existing = await self.get_bound_account(ctx.message.sender)
+        except httpx.HTTPStatusError as e:
+            self.log.warning("Failed to fetch bound account: %s", e, exc_info=True)
+            return await ctx.respond("\N{cross mark} Failed to bind your account. Please try again later.")
         if existing:
             return await ctx.respond(
                 "\N{cross mark} You have already bound your account to `{}`.\n"
@@ -708,7 +716,11 @@ class DiscordBridge(niobot.Module):
     @niobot.command("unbind")
     async def unbind(self, ctx: niobot.Context):
         """(discord bridge) Unbinds your account."""
-        existing = await self.get_bound_account(ctx.message.sender)
+        try:
+            existing = await self.get_bound_account(ctx.message.sender)
+        except httpx.HTTPStatusError as e:
+            self.log.warning("Failed to fetch bound account: %s", e, exc_info=True)
+            return await ctx.respond("\N{cross mark} Failed to unbind your account. Please try again later.")
         if not existing:
             return await ctx.respond("\N{cross mark} You have not bound your account to any discord account.")
         async with httpx.AsyncClient() as client:
